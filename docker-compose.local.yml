@@ -1,0 +1,5 @@
+services:
+  server:
+    build:
+      context: ../server
+    image: ghcr.io/torrent-tv/server:latest
