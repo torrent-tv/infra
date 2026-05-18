@@ -10,7 +10,7 @@ services:
     environment:
       PORT: "8080"
     volumes:
-      - torrent-tv-server-static:/app/public
+      - torrent-tv-server-static:/app/public-volume
 
   nginx:
     image: nginx:alpine
