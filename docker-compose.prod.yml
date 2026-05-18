@@ -6,4 +6,4 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DOCKER_API_VERSION=1.45
-    command: --interval 300
+    command: --interval 300 --debug
