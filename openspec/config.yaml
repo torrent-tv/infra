@@ -1,0 +1,30 @@
+schema: spec-driven
+
+context: |
+  Hosting and infrastructure for the torrent-tv server (webauth.courses):
+  nginx + docker-compose on a DigitalOcean droplet (s-1vcpu-1gb, AMS3) behind
+  Cloudflare (orange cloud, HTTPS termination; droplet listens on HTTP :80).
+  Constraints (see CLAUDE.md for the full set):
+  - Video must NEVER flow through this server or Cloudflare (bandwidth cost +
+    Cloudflare ToS). The server carries only signalling, static assets and API.
+  - Planned per-proxy DNS records must be DNS-only (grey cloud), never proxied.
+  - Docs in English; shell scripts use LF line endings.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
