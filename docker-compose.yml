@@ -9,8 +9,15 @@ services:
       - "8080"
     environment:
       PORT: "8080"
+      TMDB_READ_TOKEN_FILE: /run/secrets/torrent-tv/tmdb_read_token
     volumes:
       - torrent-tv-server-static:/app/public-volume
+      # The TMDB token, as a file placed on the host by hand and never in git.
+      # The directory itself is in the repository, so this mount exists even
+      # when the file does not — the server then logs that film metadata is off
+      # and runs as before. The file must be readable by the container's `app`
+      # user (uid 100 in the current image); see README.
+      - ./secrets:/run/secrets/torrent-tv:ro
 
   nginx:
     image: nginx:alpine

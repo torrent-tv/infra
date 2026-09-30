@@ -210,6 +210,37 @@ The server image is published as `ghcr.io/torrent-tv/server:latest`. Watchtower 
 |----------|---------|--------|
 | `PORT` | `8080` | `docker-compose.yml` |
 | `NODE_ENV` | `production` | Server `Dockerfile` |
+| `TMDB_READ_TOKEN_FILE` | `/run/secrets/torrent-tv/tmdb_read_token` | `docker-compose.yml` |
+
+## Secrets
+
+Secrets are files in `secrets/` next to `docker-compose.yml`, placed on the
+droplet by hand. The directory is in this repository (holding only
+`.gitkeep`); everything else in it is ignored by git, so a secret can never be
+committed.
+
+`docker-compose.yml` mounts `./secrets` read-only into the server container at
+`/run/secrets/torrent-tv`, and passes the PATH of each file in an environment
+variable — never the value. The value is therefore not in the image, not in
+the container's environment and not in `docker inspect`. Because the directory
+always exists, the container starts without any secret in it; the feature that
+needs it is then off and says so in the log.
+
+| File | Used for | Read by |
+|------|----------|---------|
+| `secrets/tmdb_read_token` | TMDB API Read Access Token (film titles, episode names, images) | server, once at startup; logs `TMDB token loaded` or why not |
+
+The server runs as the image's `app` user, uid 100 in the current image
+(`docker exec infra-server-1 id`). A secret must be readable by it: owner
+uid 100, mode `400`. On the droplet this repository lives at `/websites/infra`
+(not the `/srv/torrent-tv` shown above). Put the token there without it
+reaching the shell history or the screen:
+
+```bash
+ssh -t do 'umask 077 && read -rsp "TMDB token: " T && printf "%s" "$T" > /websites/infra/secrets/tmdb_read_token && chown 100:101 /websites/infra/secrets/tmdb_read_token && chmod 400 /websites/infra/secrets/tmdb_read_token && echo && ls -ln /websites/infra/secrets'
+```
+
+Then recreate the server container (`./prod.sh`) so it reads the file.
 
 ## Troubleshooting
 
