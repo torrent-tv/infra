@@ -121,3 +121,19 @@ If the server role expands to **relay** or **HLS delivery**, the Droplet plan an
 - WebSocket connections (`/ws/`) work through Cloudflare — 100 s idle timeout applies; the proxy tunnel already sends keepalive pings every 30 s to stay under it.
 - Cloudflare caches static assets (JS/CSS/HTML) — good for frontend delivery.
 - Cloudflare **does not** and **must not** proxy video streaming traffic (ToS + practical limits).
+
+## Commits and deploy
+
+Every commit header follows Conventional Commits (`<type>(<scope>)!: <subject>`,
+types `feat fix perf refactor docs test build ci chore style revert`); CI refuses
+a pushed commit that does not. Enable the local check once per clone:
+`git config core.hooksPath .githooks`. Rules: `torrent-tv/.github` CONTRIBUTING.md.
+
+A push to `main` runs `.github/workflows/main.yml`: commit headers, line endings,
+`docker compose … config` for the production overlay and `nginx -t` on `nginx/`.
+Then the deploy job in the `production` environment connects to the droplet
+with a key that the droplet restricts to one forced command,
+`cd /websites/infra && git pull --ff-only -q && ./prod.sh`. Until the
+environment holds `DROPLET_HOST`, `DROPLET_SSH_KEY` and `DROPLET_KNOWN_HOSTS`,
+the job says so and deploys nothing. The server image itself is rolled out by
+watchtower, not by this job.
