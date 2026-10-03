@@ -1,0 +1,9 @@
+# The revision of the nginx configuration in this directory. Raise the number in
+# every commit that changes a file in nginx/ (CI refuses a commit that does not).
+# After a deployment CI reads /_infra/revision: an unchanged number means nginx
+# rejected the new configuration on SIGHUP and is still serving the old one.
+location = /_infra/revision {
+    default_type text/plain;
+    add_header Cache-Control "no-store" always;
+    return 200 "1\n";
+}

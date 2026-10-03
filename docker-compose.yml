@@ -1,9 +1,23 @@
+# The production stack on the droplet, applied by doco-cd from the `production`
+# branch after CI has checked it (see .doco-cd.yaml and .github/workflows/main.yml).
+#
+# Every image is pinned by tag and digest, so this file says exactly what runs.
+# The daily dependency job updates the digests; a server release writes the
+# server's version and digest here.
+#
+# The compose project is `infra`: the volume and the network keep the names they
+# had before doco-cd, `infra_torrent-tv-server-static` and `infra_default`, and the
+# `wand` project on the same host joins `infra_default` as an external network.
+
+name: infra
+
 volumes:
   torrent-tv-server-static:
+    name: infra_torrent-tv-server-static
 
 services:
   server:
-    image: ghcr.io/torrent-tv/server:latest
+    image: ghcr.io/torrent-tv/server:0.36.14@sha256:06e0f438964a25eb08ba94be00f94f9198aeedacb02faba5b095be6cdf50a703
     restart: unless-stopped
     expose:
       - "8080"
@@ -13,19 +27,26 @@ services:
     volumes:
       - torrent-tv-server-static:/app/public-volume
       # The TMDB token, as a file placed on the host by hand and never in git.
-      # The directory itself is in the repository, so this mount exists even
-      # when the file does not — the server then logs that film metadata is off
-      # and runs as before. The file must be readable by the container's `app`
-      # user (uid 100 in the current image); see README.
-      - ./secrets:/run/secrets/torrent-tv:ro
+      # An absolute path: doco-cd deploys each revision from its own copy of the
+      # repository, so a relative path would point into a copy without the file.
+      # The file must be readable by the container's `app` user (uid 100); see README.
+      - /websites/infra/secrets:/run/secrets/torrent-tv:ro
 
   nginx:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
     restart: unless-stopped
     ports:
       - "80:80"
     volumes:
       - ./nginx:/etc/nginx/conf.d:ro
       - torrent-tv-server-static:/var/www/static/torrent-tv/server:ro
+    labels:
+      # A change of the configuration is not a reason to recreate nginx: doco-cd
+      # updates the files in place and sends SIGHUP, and nginx reloads. The master
+      # process checks the new configuration first; one it rejects is logged and
+      # the old one keeps serving. CI then sees the unchanged revision
+      # (/_infra/revision) and fails the deployment.
+      cd.doco.deployment.recreate.ignore: "{bindMounts: [/etc/nginx/conf.d]}"
+      cd.doco.deployment.recreate.ignore.signal: "SIGHUP"
     depends_on:
       - server

@@ -1,0 +1,47 @@
+# doco-cd, which applies this repository (.doco-cd.yaml) on the droplet.
+#
+# It is not applied by itself: a broken doco-cd release would disable what applies
+# the fix. Applied by hand on the host, from the clone in /websites/infra:
+#
+#   git -C /websites/infra pull
+#   docker compose -p doco-cd -f /websites/infra/host/doco-cd/docker-compose.yml up -d
+#   curl -fsS http://127.0.0.1:8090/v1/health
+#
+# The daily job of this repository opens an issue in torrent-tv/meta when a new
+# doco-cd release appears; the digest below is changed by hand.
+
+name: doco-cd
+
+services:
+  doco-cd:
+    image: ghcr.io/kimdre/doco-cd:0.123.0@sha256:11b474122ed530614cbe4cb8390f94b646d3fc8ba40d74c0f0b7f55a8ca719f8
+    restart: unless-stopped
+    environment:
+      TZ: Etc/UTC
+      HTTP_PORT: "80"
+      WEBHOOK_SECRET_FILE: /run/secrets/doco-cd/webhook_secret
+      API_SECRET_FILE: /run/secrets/doco-cd/api_secret
+      POLL_CONFIG_FILE: /etc/doco-cd/poll.yaml
+      SELF_UPDATE_ENABLED: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /websites/doco-cd/data:/data
+      - /websites/doco-cd/secrets:/run/secrets/doco-cd:ro
+      - ./poll.yaml:/etc/doco-cd/poll.yaml:ro
+    # Reachable from nginx on infra_default; from the host only on loopback,
+    # which is what the first deployment uses before nginx has the route.
+    ports:
+      - "127.0.0.1:8090:80"
+    networks:
+      - infra
+    healthcheck:
+      test: ["CMD", "/doco-cd", "healthcheck"]
+      start_period: 15s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  infra:
+    name: infra_default
+    external: true

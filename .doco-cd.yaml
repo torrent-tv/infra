@@ -1,0 +1,12 @@
+# How doco-cd applies this repository on the droplet. It always deploys the
+# current state of `production`, which CI moves only to a commit whose checks
+# passed; a webhook for any other reference is refused.
+name: infra
+reference: production
+webhook_filter: ^refs/heads/production$
+working_dir: .
+compose_files:
+  - docker-compose.yml
+remove_orphans: true
+prune_images: false
+timeout: 300

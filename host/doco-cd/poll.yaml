@@ -1,0 +1,5 @@
+# The fallback when a webhook from CI is lost: doco-cd looks at `production`
+# every five minutes and applies it when it moved.
+- url: https://github.com/torrent-tv/infra.git
+  reference: production
+  interval: 300
