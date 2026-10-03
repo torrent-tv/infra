@@ -1,0 +1,52 @@
+name: Dependencies
+
+# Daily: move each pinned image to the digest its tag points to now (nginx follows
+# its main line this way), push the change to main and start the main workflow,
+# which checks it and deploys it. Fails while doco-cd has a release newer than the
+# pinned one, since doco-cd is updated by hand.
+
+on:
+  schedule:
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: dependencies
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  update:
+    name: Update
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Update pinned digests
+        id: digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/update-digests.mjs
+      - name: Commit and deploy
+        if: always() && steps.digests.outputs.changed != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED: ${{ steps.digests.outputs.changed }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "fix(deps): update the digest of $CHANGED #ttv-93"
+          for _ in 1 2 3; do
+            if git push origin HEAD:refs/heads/main; then
+              gh workflow run main.yml --ref main
+              exit 0
+            fi
+            git pull --rebase origin main
+          done
+          exit 1

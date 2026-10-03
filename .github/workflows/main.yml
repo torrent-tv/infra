@@ -1,9 +1,8 @@
 name: Main
 
-# Every push to main checks the compose stack and the nginx configuration, then
-# deploys them to the droplet. The deploy key is restricted on the droplet to one
-# forced command (`git pull --ff-only && ./prod.sh` in /websites/infra), so this
-# workflow cannot run anything else there.
+# Every push to main is checked; a checked commit is then applied on the droplet
+# by doco-cd. CI never logs in to the host: it moves the `production` branch, which
+# doco-cd deploys, and verifies the live site from outside.
 
 on:
   push:
@@ -12,10 +11,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: main-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 permissions:
   contents: read
 
@@ -23,6 +18,11 @@ jobs:
   checks:
     name: Checks
     runs-on: ubuntu-latest
+    # A newer push to a pull request makes its older checks pointless; every push to
+    # main gets a group of its own, so no check of main is ever replaced.
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('checks-{0}', github.ref) || format('checks-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,11 +34,21 @@ jobs:
         with:
           node: "false"
           extra-check: |
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
-            docker run --rm \
-              --add-host server:127.0.0.1 \
-              -v "$PWD/nginx:/etc/nginx/conf.d:ro" \
-              nginx:alpine nginx -t
+            # Every image is pinned by digest, so the file says exactly what runs.
+            if grep -hE '^\s+image:' docker-compose.yml host/doco-cd/docker-compose.yml | grep -v '@sha256:'; then
+              echo "::error::an image above is not pinned by digest"
+              exit 1
+            fi
+            docker compose -f docker-compose.yml config --quiet
+            docker compose -f host/doco-cd/docker-compose.yml config --quiet
+            # The configuration, checked by the nginx image that will run it.
+            image=$(sed -nE 's/^\s+image:\s+(nginx:\S+)$/\1/p' docker-compose.yml)
+            docker run --rm -v "$PWD/nginx:/etc/nginx/conf.d:ro" "$image" nginx -t
+            # A change under nginx/ raises the revision CI reads back after deploying.
+            base="${{ github.event.pull_request.base.sha || github.event.before }}"
+            if [ -n "$base" ] && ! [[ "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+              node scripts/check-nginx-revision.mjs "$base..${{ github.sha }}"
+            fi
 
   deploy:
     name: Deploy
@@ -48,20 +58,55 @@ jobs:
     environment:
       name: production
       url: https://webauth.courses
+    # One deployment at a time and every one of them: while this job moves
+    # `production`, applies and verifies its commit, nothing else moves the branch.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: write
+    env:
+      DEPLOY_URL: ${{ vars.DEPLOY_URL }}
     steps:
-      - name: Deploy the stack to the droplet
-        env:
-          HOST: ${{ vars.DROPLET_HOST }}
-          KEY: ${{ secrets.DROPLET_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.DROPLET_KNOWN_HOSTS }}
+      - name: Deployment configured?
+        id: configured
         run: |
-          if [ -z "$HOST" ] || [ -z "$KEY" ] || [ -z "$KNOWN_HOSTS" ]; then
-            echo "::warning::Deploy is not configured: the production environment needs DROPLET_HOST, DROPLET_SSH_KEY and DROPLET_KNOWN_HOSTS (see torrent-tv/.github README). Nothing was deployed."
-            exit 0
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "::notice::DEPLOY_URL is not set in the production environment; nothing is deployed (see torrent-tv/meta#93)"
+            echo "on=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=true" >> "$GITHUB_OUTPUT"
           fi
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy
-          chmod 600 ~/.ssh/deploy
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          # The droplet runs its forced command whatever is asked for here.
-          ssh -i ~/.ssh/deploy -o BatchMode=yes "root@$HOST" deploy
+
+      - if: steps.configured.outputs.on == 'true'
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - if: steps.configured.outputs.on == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Proxies connected before
+        if: steps.configured.outputs.on == 'true'
+        run: node scripts/verify-site.mjs proxies > "$RUNNER_TEMP/proxies-before.json"
+
+      - name: Move production and apply
+        id: deploy
+        if: steps.configured.outputs.on == 'true'
+        env:
+          WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
+          API_SECRET: ${{ secrets.DEPLOY_API_SECRET }}
+        run: node scripts/deploy.mjs
+
+      - name: Site after the deployment
+        if: steps.configured.outputs.on == 'true' && steps.deploy.outputs.outcome != 'stale'
+        run: node scripts/verify-site.mjs check "$RUNNER_TEMP/proxies-before.json"
+
+      - name: Page after the deployment
+        if: steps.configured.outputs.on == 'true' && steps.deploy.outputs.outcome != 'stale'
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1
+          npx playwright install --with-deps chromium
+          node scripts/verify-page.mjs
