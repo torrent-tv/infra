@@ -138,6 +138,5 @@ webhook, follows the run, and checks the live site and page from outside. CI has
 no login to the host. doco-cd itself (`host/doco-cd/`) is updated by hand.
 Details, bootstrap and rollback: README and torrent-tv/meta#93.
 
-Never run `prod.sh` or `git pull` in `/websites/infra` before the switch to doco-cd
-(meta#93, stage 8.5): this branch already describes the target state (no watchtower,
-pinned images, absolute secret path).
+The droplet has been applied by doco-cd since 2026-10-03 (meta#93). Change it by
+pushing to `main`; `prod.sh` is only for when doco-cd itself is down.
