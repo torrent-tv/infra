@@ -117,9 +117,9 @@ compose file is applied from there); doco-cd keeps its data in
    `nginx/` raised the revision in `nginx/revision.common`.
 3. The serial `deploy` job (one at a time, queued) moves `production` to the
    commit without force — a commit `production` already contains is skipped as
-   superseded — and sends doco-cd a signed webhook through
-   `https://webauth.courses/_deploy/`. doco-cd always deploys the current state of
-   `production`.
+   superseded — and sends doco-cd a signed webhook for that commit through
+   `https://webauth.courses/_deploy/`. doco-cd deploys the commit the webhook
+   names; its poll every five minutes deploys the head of `production`.
 4. CI follows the deployment run until doco-cd reports it, then checks the site
    from outside: static files, `/env.js` reports the pinned server version,
    `/_infra/revision` equals the committed revision (nginx accepted the new
@@ -129,8 +129,9 @@ compose file is applied from there); doco-cd keeps its data in
 
 A configuration change reloads nginx without recreating it: doco-cd updates the
 mounted files and sends SIGHUP. nginx checks the new configuration itself and
-keeps serving the old one if it is invalid; CI then sees the old revision and
-fails.
+keeps serving the old one if it is invalid. doco-cd still reports such a
+deployment as succeeded, so the revision check is what catches it: CI sees the old
+revision and fails.
 
 The `deploy` job is off until the `production` environment has `DEPLOY_URL`
 (variable) and `DEPLOY_WEBHOOK_SECRET`, `DEPLOY_API_SECRET` (secrets).
@@ -144,9 +145,10 @@ The `deploy` job is off until the `production` environment has `DEPLOY_URL`
 3. Put the doco-cd secrets on the host (`/websites/doco-cd/secrets/webhook_secret`,
    `api_secret`, mode 400) and start it:
    `docker compose -p doco-cd -f /websites/infra/host/doco-cd/docker-compose.yml up -d`.
-4. First deployment through loopback, before nginx has the `/_deploy/` route:
+   On start it applies `production` at once (and removes watchtower, an orphan of
+   the `infra` project now). A second run, if needed, goes through loopback:
    `curl -fsS -X POST -H "x-api-key: …" "http://127.0.0.1:8090/v1/api/poll/run?wait=true"`.
-5. Run the main workflow by hand to check the site, then set `DEPLOY_URL` and the
+4. Run the main workflow by hand to check the site, then set `DEPLOY_URL` and the
    two secrets in the `production` environment.
 
 Rollback of that first switch:

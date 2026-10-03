@@ -1,5 +1,8 @@
 # doco-cd, which applies this repository (.doco-cd.yaml) on the droplet.
 #
+# On start it polls at once and applies the head of `production`; that is how the
+# first deployment on a host happens.
+#
 # It is not applied by itself: a broken doco-cd release would disable what applies
 # the fix. Applied by hand on the host, from the clone in /websites/infra:
 #
@@ -34,6 +37,8 @@ services:
       - "127.0.0.1:8090:80"
     networks:
       - infra
+    # Measured 36-38 MiB at rest and while applying (2026-10-03, doco-cd 0.123.0).
+    mem_limit: 128m
     healthcheck:
       test: ["CMD", "/doco-cd", "healthcheck"]
       start_period: 15s

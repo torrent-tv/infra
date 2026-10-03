@@ -7,10 +7,12 @@
 //
 // Environment: GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, DEPLOY_URL (the
 // doco-cd base URL, e.g. https://webauth.courses/_deploy), WEBHOOK_SECRET, API_SECRET.
-// Outputs: `outcome` = stale | applied | unknown.
-//   stale   — `production` already went past this commit; nothing was done.
-//   applied — doco-cd reported the deployment succeeded.
-//   unknown — doco-cd lost the run (restarted); the site checks decide.
+// Outputs: `outcome` = stale | applied | unchanged | unknown.
+//   stale     — `production` already went past this commit; nothing was done.
+//   applied   — doco-cd reported the deployment succeeded.
+//   unchanged — doco-cd found `production` already applied (its poll got there
+//               first, or this is a re-run); the site checks decide.
+//   unknown   — doco-cd lost the run (restarted); the site checks decide.
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { appendFileSync } from "node:fs";
@@ -64,9 +66,11 @@ if (production === sha) {
   throw new Error(`production (${production}) and ${sha} have diverged; a person has to decide`);
 }
 
-// 2. The signed request. doco-cd answers at once with a job id and deploys the
-// current state of production in the background. A lost answer is retried: the
-// same state is applied again.
+// 2. The signed request. doco-cd answers at once with a job id and deploys, in the
+// background, the commit named in `after` — measured on doco-cd 0.123.0: a request
+// naming an older commit applies that commit, not the head of the branch. That is
+// why only this serial job sends requests, and always for its own commit, which is
+// now the head of production. A lost answer is retried: the same commit again.
 const payload = JSON.stringify({
   ref: "refs/heads/production",
   before: production,
@@ -119,13 +123,23 @@ while (Date.now() < deadline) {
       console.log(`run state answered ${status}; retrying`);
       continue;
     }
-    const run = JSON.parse(text);
+    // doco-cd answers { content: { status, message, ... } } (measured, 0.123.0).
+    const body = JSON.parse(text);
+    const run = body.content ?? body;
     const state = String(run.status ?? "").toLowerCase();
-    console.log(`job ${job}: ${state}`);
+    console.log(`job ${job}: ${state}${run.message ? ` (${run.message})` : ""}`);
     if (!TERMINAL.has(state)) continue;
-    if (state !== "succeeded") throw new Error(`doco-cd reports the deployment ${state}: ${text}`);
-    output("outcome", "applied");
-    process.exit(0);
+    if (state === "succeeded") {
+      output("outcome", "applied");
+      process.exit(0);
+    }
+    // "deployment skipped" means production was already applied; a skip for any
+    // other reason (a webhook filter that did not match) is a misconfiguration.
+    if (state === "skipped" && run.message === "deployment skipped") {
+      output("outcome", "unchanged");
+      process.exit(0);
+    }
+    throw new Error(`doco-cd reports the deployment ${state}: ${text}`);
   } catch (error) {
     if (error.message.startsWith("doco-cd reports")) throw error;
     console.log(`no answer about job ${job} (${error.message}); retrying`);
