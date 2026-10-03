@@ -130,10 +130,14 @@ a pushed commit that does not. Enable the local check once per clone:
 `git config core.hooksPath .githooks`. Rules: `torrent-tv/.github` CONTRIBUTING.md.
 
 A push to `main` runs `.github/workflows/main.yml`: commit headers, line endings,
-`docker compose … config` for the production overlay and `nginx -t` on `nginx/`.
-Then the deploy job in the `production` environment connects to the droplet
-with a key that the droplet restricts to one forced command,
-`cd /websites/infra && git pull --ff-only -q && ./prod.sh`. Until the
-environment holds `DROPLET_HOST`, `DROPLET_SSH_KEY` and `DROPLET_KNOWN_HOSTS`,
-the job says so and deploys nothing. The server image itself is rolled out by
-watchtower, not by this job.
+every image pinned by digest, `docker compose config`, `nginx -t` in the pinned
+nginx image, and a raised `nginx/revision.common` for any change under `nginx/`.
+The serial `deploy` job then moves `production` to the checked commit (never
+backwards, never forced), asks doco-cd on the droplet to apply it through a signed
+webhook, follows the run, and checks the live site and page from outside. CI has
+no login to the host. doco-cd itself (`host/doco-cd/`) is updated by hand.
+Details, bootstrap and rollback: README and torrent-tv/meta#93.
+
+Never run `prod.sh` or `git pull` in `/websites/infra` before the switch to doco-cd
+(meta#93, stage 8.5): this branch already describes the target state (no watchtower,
+pinned images, absolute secret path).
