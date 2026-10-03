@@ -1,0 +1,67 @@
+name: Main
+
+# Every push to main checks the compose stack and the nginx configuration, then
+# deploys them to the droplet. The deploy key is restricted on the droplet to one
+# forced command (`git pull --ff-only && ./prod.sh` in /websites/infra), so this
+# workflow cannot run anything else there.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: main-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: torrent-tv/.github/actions/checks@main
+        with:
+          node: "false"
+          extra-check: |
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+            docker run --rm \
+              --add-host server:127.0.0.1 \
+              -v "$PWD/nginx:/etc/nginx/conf.d:ro" \
+              nginx:alpine nginx -t
+
+  deploy:
+    name: Deploy
+    needs: checks
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://webauth.courses
+    steps:
+      - name: Deploy the stack to the droplet
+        env:
+          HOST: ${{ vars.DROPLET_HOST }}
+          KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DROPLET_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$KEY" ] || [ -z "$KNOWN_HOSTS" ]; then
+            echo "::warning::Deploy is not configured: the production environment needs DROPLET_HOST, DROPLET_SSH_KEY and DROPLET_KNOWN_HOSTS (see torrent-tv/.github README). Nothing was deployed."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The droplet runs its forced command whatever is asked for here.
+          ssh -i ~/.ssh/deploy -o BatchMode=yes "root@$HOST" deploy
