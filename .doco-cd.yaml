@@ -8,5 +8,10 @@ working_dir: .
 compose_files:
   - docker-compose.yml
 remove_orphans: true
-prune_images: false
+# After a deployment, remove the previous image of every service whose image
+# changed (doco-cd 0.123.0, compose_deploy.go: only those IDs, and an image a
+# running container uses is skipped). Old server images filled the disk once
+# (24 GB, 285 images). A rollback is a revert in this repository: the image is
+# pinned by digest and is pulled again from GHCR.
+prune_images: true
 timeout: 300
