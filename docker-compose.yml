@@ -12,6 +12,7 @@
 name: infra
 
 volumes:
+  torrent-tv-server-cache:
   torrent-tv-server-static:
     name: infra_torrent-tv-server-static
 
@@ -24,7 +25,13 @@ services:
     environment:
       PORT: "8080"
       TMDB_READ_TOKEN_FILE: /run/secrets/torrent-tv/tmdb_read_token
+      OPENSUBTITLES_API_KEY_FILE: /run/secrets/torrent-tv/opensubtitles_api_key
+      JIMAKU_API_KEY_FILE: /run/secrets/torrent-tv/jimaku_api_key
+      SERVER_CACHE_DIR: /app/cache
+      SERVER_CACHE_MIB: "1024"
+      SERVER_CACHE_RESERVE_MIB: "256"
     volumes:
+      - torrent-tv-server-cache:/app/cache
       - torrent-tv-server-static:/app/public-volume
       # The TMDB token, as a file placed on the host by hand and never in git.
       # An absolute path: doco-cd deploys each revision from its own copy of the

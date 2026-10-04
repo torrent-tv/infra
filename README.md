@@ -240,6 +240,28 @@ set $upstream http://server:8080;
 | `NODE_ENV` | `production` | Server `Dockerfile` |
 | `TMDB_READ_TOKEN_FILE` | `/run/secrets/torrent-tv/tmdb_read_token` | `docker-compose.yml` |
 
+## Server cache and subtitle providers
+
+The `torrent-tv-server-cache` volume holds the server's independent cache of
+catalogue records, subtitle search results and selected subtitle files. It is
+not shared with proxy torrent storage. `SERVER_CACHE_MIB` limits the database
+to 1024 MiB initially; entries are evicted by last access across all namespaces.
+The server reserves 256 MiB of free disk space before a cache write. The volume
+survives image replacement and is owned by the image's `app` user.
+
+Provider credentials follow the existing file-secret convention:
+
+1. `/websites/infra/secrets/opensubtitles_api_key`, exposed only through
+   `OPENSUBTITLES_API_KEY_FILE`.
+2. `/websites/infra/secrets/jimaku_api_key`, exposed only through
+   `JIMAKU_API_KEY_FILE`.
+
+Both files need uid 100 ownership and mode 400, like the TMDB token. Missing keys
+disable their provider without preventing server startup. GitHub repository
+secrets `OPENSUBTITLES_API_KEY` and `JIMAKU_API_KEY` are stored separately;
+CI never places them in an image and has no SSH access to the host. Rotate the
+host files and restart the server when rotating a provider key.
+
 ## Secrets
 
 Secrets are files in `secrets/` next to `docker-compose.yml`, placed on the
