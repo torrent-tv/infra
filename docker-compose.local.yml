@@ -1,9 +1,15 @@
 services:
-  server:
+  # Both slots run the server built from ../server; the first to start serves
+  # and the other stands by (torrent-tv/meta#94).
+  server-a:
     build:
       context: ../server
     image: ghcr.io/torrent-tv/server:latest
     # Docker Desktop has no journald; locally the logs stay with the container.
+    logging:
+      driver: ${TTV_LOG_DRIVER:-json-file}
+  server-b:
+    image: ghcr.io/torrent-tv/server:latest
     logging:
       driver: ${TTV_LOG_DRIVER:-json-file}
   nginx:

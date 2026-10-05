@@ -6,7 +6,7 @@ Docker Compose infrastructure for running the `torrent-tv` server on a VPS: ngin
 
 | Service | Image | Role |
 |---------|-------|------|
-| `server` | `ghcr.io/torrent-tv/server:<version>@<digest>` | Node.js app — proxy registry + WebRTC signalling + frontend |
+| `server-a`, `server-b` | `ghcr.io/torrent-tv/server:<version>@<digest>` | Node.js app — proxy registry + WebRTC signalling + frontend; two slots, one serves (see [Two server slots](#two-server-slots)) |
 | `nginx` | `nginx:alpine@<digest>` | Reverse proxy on port 80; serves static files directly |
 | `doco-cd` | `ghcr.io/kimdre/doco-cd:<version>@<digest>` | Separate compose project (`host/doco-cd/`); applies this repository's `production` branch |
 
@@ -25,7 +25,8 @@ graph TB
   subgraph VPS["VPS (DigitalOcean Droplet)"]
     direction TB
     NGINX["nginx :80\n(reverse proxy)"]
-    SERVER["server :8080\n(Node.js)"]
+    SERVER["server-a :8080\n(Node.js, serving)"]
+    STANDBY["server-b :8080\n(Node.js, standby)"]
     DOCO["doco-cd\n(applies production)"]
     VOL[("torrent-tv-server-static\nDocker volume")]
     GHCR["ghcr.io\n(container registry)"]
@@ -36,6 +37,8 @@ graph TB
 
   NGINX -->|"static files\n(JS, CSS, HTML)"| VOL
   NGINX -->|"API + /ws/"| SERVER
+  NGINX -.->|"503: the other slot"| STANDBY
+  STANDBY <-->|"/internal/hand-over\nat a release"| SERVER
   SERVER --- VOL
 
   HA -->|"WebSocket /ws/proxy-tunnel\n(persistent tunnel)"| NGINX
@@ -43,7 +46,7 @@ graph TB
 
   GH["GitHub\n(production branch)"]
   GH -->|"signed webhook after checks\n+ poll every 5 min"| DOCO
-  DOCO -->|"docker compose up"| SERVER
+  DOCO -->|"docker compose up\n(the slot not serving)"| STANDBY
   DOCO -->|"files in place + SIGHUP"| NGINX
   GHCR -->|"pinned images"| DOCO
 
@@ -128,6 +131,35 @@ compose file is applied from there); doco-cd keeps its data in
    before is back, the droplet has room for the next server image (see
    [Disk space](#disk-space)); and a headless browser checks the page lists proxies
    and shows the file picker. No torrent is involved.
+
+### Two server slots
+
+The proxy registry and the browsers' signalling sockets live in the memory of
+one server process, so only one server serves at a time. It runs in two slots,
+`server-a` and `server-b` (torrent-tv/meta#94):
+
+1. A server release writes its image into the slot that names the older
+   version, which is not serving (`torrent-tv/.github`
+   `scripts/server-image.mjs`). doco-cd recreates only that slot.
+2. The new instance asks the serving one, over `/internal/hand-over` on the
+   Docker network, to hand over. The serving one stops accepting proxy tunnels
+   and asks every proxy that follows moves (proxy 2.91.0 and later) to open a
+   second connection; nginx sends that connection to the new instance.
+3. When each of those proxies has arrived, the new instance serves: it opens the
+   server cache and points `current` in the static volume at its own copy of
+   the page. The old one stops accepting pages and new signalling sockets,
+   finishes the signalling already under way (until its newest signalling
+   socket is as old as the page's 30 s connect deadline), closes its tunnels and
+   stands by.
+4. nginx sends every request to either slot and, when the slot answers 503, to
+   the other one, so a connecting page always reaches the slot that serves.
+
+The standby slot is one idle process, about 80 MB. A proxy older than 2.91.0 does
+not follow moves: it is reconnected when the old instance closes its tunnel, and
+is missing from the list for its 5 s reconnect delay. `GET /healthz` names the
+slot and its state (`serving`, `standby`, …). During every deployment CI asks
+for the list of proxies as a connecting page would (`verify-site.mjs watch`); a
+failed answer or an empty list fails the job.
 
 A configuration change reloads nginx without recreating it: doco-cd updates the
 mounted files and sends SIGHUP. nginx checks the new configuration itself and
@@ -228,7 +260,7 @@ ssh do 'zgrep -h <text> /var/log/torrent-tv/server.log*'   # rotated turns too; 
 ssh do 'journalctl -t torrent-tv-server --since "2026-10-05 09:00" --until "2026-10-05 10:00" -o short-iso-precise'
 ```
 
-`docker logs infra-server-1` shows only the lines of the CURRENT container: with
+`docker logs infra-server-a-1` (or `-b-1`) shows only the lines of the CURRENT container: with
 the `journald` driver Docker reads the journal by container id, and a deployment
 gives the server a new one. Use the files or `journalctl -t` for anything older.
 
@@ -279,7 +311,7 @@ nginx is available at `http://localhost:80`. The `docker-compose.local.yml` over
 
 ### Static files via Docker volume
 
-The `server` container populates the `torrent-tv-server-static` volume with compiled frontend assets. nginx mounts the same volume read-only and serves files from it directly — the Node.js process is never hit for static assets.
+Each server container copies the page into `releases/<version>-<slot>-<start time>` of the `torrent-tv-server-static` volume when it starts, and the slot that starts to serve points the link `current` at its own copy in one step, keeping the previous copy for pages loaded just before. nginx mounts the volume read-only and serves `current` directly — the Node.js process is never hit for static assets.
 
 ```
 Browser → nginx → Docker volume → response   (fast, no Node.js hop)
@@ -292,7 +324,7 @@ The `/ws/` location block sets the correct upgrade headers (`Upgrade`, `Connecti
 
 ```nginx
 location /ws/ {
-    proxy_pass $upstream;
+    proxy_pass http://torrent_tv_server;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -302,17 +334,22 @@ location /ws/ {
 
 ### Dynamic upstream resolution
 
-nginx uses `resolver 127.0.0.11` (Docker's internal DNS) with `valid=10s` so it re-resolves the `server` hostname after a deployment recreates the container. Without this, nginx caches the old IP and returns 502 until it's reloaded.
+The upstream names both slots and resolves them through Docker's internal DNS while nginx runs, so a slot that a deployment recreates is picked up without a reload. A 503 from a slot that does not serve sends the request to the other; no slot is ever marked down.
 
 ```nginx
-resolver 127.0.0.11 valid=10s;
-set $upstream http://server:8080;
+upstream torrent_tv_server {
+    zone torrent_tv_server 64k;
+    resolver 127.0.0.11 valid=10s;
+    server server-a:8080 resolve max_fails=0;
+    server server-b:8080 resolve max_fails=0;
+}
+proxy_next_upstream error timeout http_502 http_503 non_idempotent;
 ```
 
 ### Adding a new service
 
 1. Add the service to `docker-compose.yml`.
-2. Create `nginx/<your-domain>.conf` — copy `webauth.courses.conf` as a template and change `server_name`, `root`, and `set $upstream`.
+2. Create `nginx/<your-domain>.conf` — copy `webauth.courses.conf` as a template and change `server_name`, `root` and the upstream.
 3. Add a DNS A record in Cloudflare pointing to the droplet IP with the orange cloud enabled (proxy mode).
 4. Raise the number in `nginx/revision.common` in the same commit; CI refuses the commit otherwise, and the deployment reloads nginx.
 
@@ -382,7 +419,7 @@ needs it is then off and says so in the log.
 | `secrets/tmdb_read_token` | TMDB API Read Access Token (film titles, episode names, images) | server, once at startup; logs `TMDB token loaded` or why not |
 
 The server runs as the image's `app` user, uid 100 in the current image
-(`docker exec infra-server-1 id`). A secret must be readable by it: owner
+(`docker exec infra-server-a-1 id`). A secret must be readable by it: owner
 uid 100, mode `400`. Put the token there without it
 reaching the shell history or the screen:
 
