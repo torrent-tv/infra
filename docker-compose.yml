@@ -18,7 +18,7 @@ volumes:
 
 services:
   server:
-    image: ghcr.io/torrent-tv/server:0.37.10@sha256:57ce23799f725b2246753d5ea863776c5129dd10aa88303d2450b6246bd37845
+    image: ghcr.io/torrent-tv/server:0.37.11@sha256:1cb7d8d909b6aaca5952134aa1868f01406c3bc0234c0eff1970afb9e73437a4
     restart: unless-stopped
     expose:
       - "8080"
