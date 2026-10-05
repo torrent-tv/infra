@@ -98,7 +98,19 @@ jobs:
         env:
           WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
           API_SECRET: ${{ secrets.DEPLOY_API_SECRET }}
-        run: node scripts/deploy.mjs
+        # While the deployment is applied, the watcher asks for the list of
+        # proxies as a connecting page would; with two server slots a failed
+        # answer or an empty list fails the job (verify-site.mjs, torrent-tv/meta#94).
+        run: |
+          node scripts/verify-site.mjs watch "$RUNNER_TEMP/proxies-before.json" &
+          watcher=$!
+          deployed=0
+          node scripts/deploy.mjs || deployed=$?
+          kill -TERM "$watcher"
+          watched=0
+          wait "$watcher" || watched=$?
+          if [ "$deployed" -ne 0 ]; then exit "$deployed"; fi
+          exit "$watched"
 
       - name: Site after the deployment
         if: steps.configured.outputs.on == 'true' && steps.deploy.outputs.outcome != 'stale'

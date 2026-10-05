@@ -16,36 +16,62 @@ volumes:
   torrent-tv-server-static:
     name: infra_torrent-tv-server-static
 
+# The server runs in two slots (torrent-tv/meta#94). One serves; a release
+# writes its image into the other — the slot that names the older version — and
+# the new instance takes the proxies' tunnels over from the serving one, then
+# the pages, while the old one finishes the signalling under way and stands by.
+# nginx sends every request to either slot and, when it answers 503, to the
+# other. Both slots share the cache, which only the serving one holds open, and
+# the volume of the page, where every start writes its own release and the
+# serving one points `current` at it. A standby slot costs one idle process,
+# about 80 MB on the droplet.
+x-server: &server
+  restart: unless-stopped
+  expose:
+    - "8080"
+  # Logs go to the host journal, so they outlive the container that every
+  # deployment recreates; rsyslog then writes them to a file named by the tag
+  # (host/logs/, README "Logs"). TTV_LOG_DRIVER chooses another driver at start,
+  # e.g. json-file where there is no journald. Both slots write under one tag;
+  # the handover lines name their slot (`[instance a]`).
+  logging:
+    driver: ${TTV_LOG_DRIVER:-journald}
+    options:
+      tag: torrent-tv-server
+  volumes:
+    - torrent-tv-server-cache:/app/cache
+    - torrent-tv-server-static:/app/public-volume
+    # The TMDB token, as a file placed on the host by hand and never in git.
+    # An absolute path: doco-cd deploys each revision from its own copy of the
+    # repository, so a relative path would point into a copy without the file.
+    # The file must be readable by the container's `app` user (uid 100); see README.
+    - /websites/infra/secrets:/run/secrets/torrent-tv:ro
+
+x-server-environment: &server-environment
+  PORT: "8080"
+  TMDB_READ_TOKEN_FILE: /run/secrets/torrent-tv/tmdb_read_token
+  OPENSUBTITLES_API_KEY_FILE: /run/secrets/torrent-tv/opensubtitles_api_key
+  JIMAKU_API_KEY_FILE: /run/secrets/torrent-tv/jimaku_api_key
+  SERVER_CACHE_DIR: /app/cache
+  SERVER_CACHE_MIB: "1024"
+  SERVER_CACHE_RESERVE_MIB: "256"
+
 services:
-  server:
+  server-a:
+    <<: *server
     image: ghcr.io/torrent-tv/server:0.41.0@sha256:705089eafbd5981232460d5c319edb87d97a4419169169bdaa26710b958b938d
-    restart: unless-stopped
-    expose:
-      - "8080"
     environment:
-      PORT: "8080"
-      TMDB_READ_TOKEN_FILE: /run/secrets/torrent-tv/tmdb_read_token
-      OPENSUBTITLES_API_KEY_FILE: /run/secrets/torrent-tv/opensubtitles_api_key
-      JIMAKU_API_KEY_FILE: /run/secrets/torrent-tv/jimaku_api_key
-      SERVER_CACHE_DIR: /app/cache
-      SERVER_CACHE_MIB: "1024"
-      SERVER_CACHE_RESERVE_MIB: "256"
-    # Logs go to the host journal, so they outlive the container that every
-    # deployment recreates; rsyslog then writes them to a file named by the tag
-    # (host/logs/, README "Logs"). TTV_LOG_DRIVER chooses another driver at start,
-    # e.g. json-file where there is no journald.
-    logging:
-      driver: ${TTV_LOG_DRIVER:-journald}
-      options:
-        tag: torrent-tv-server
-    volumes:
-      - torrent-tv-server-cache:/app/cache
-      - torrent-tv-server-static:/app/public-volume
-      # The TMDB token, as a file placed on the host by hand and never in git.
-      # An absolute path: doco-cd deploys each revision from its own copy of the
-      # repository, so a relative path would point into a copy without the file.
-      # The file must be readable by the container's `app` user (uid 100); see README.
-      - /websites/infra/secrets:/run/secrets/torrent-tv:ro
+      <<: *server-environment
+      SERVER_SLOT: "a"
+      SERVER_PEER: "server-b:8080"
+
+  server-b:
+    <<: *server
+    image: ghcr.io/torrent-tv/server:0.41.0@sha256:705089eafbd5981232460d5c319edb87d97a4419169169bdaa26710b958b938d
+    environment:
+      <<: *server-environment
+      SERVER_SLOT: "b"
+      SERVER_PEER: "server-a:8080"
 
   nginx:
     image: nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
@@ -69,4 +95,5 @@ services:
       cd.doco.deployment.recreate.ignore: "{bindMounts: [/etc/nginx/conf.d]}"
       cd.doco.deployment.recreate.ignore.signal: "SIGHUP"
     depends_on:
-      - server
+      - server-a
+      - server-b

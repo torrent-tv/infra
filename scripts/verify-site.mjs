@@ -3,6 +3,16 @@
 //   node scripts/verify-site.mjs proxies > before.json      # before applying
 //   node scripts/verify-site.mjs check before.json           # after applying
 //   node scripts/verify-site.mjs disk                        # daily
+//   node scripts/verify-site.mjs watch before.json           # while applying, until SIGTERM
+//
+// `watch` asks for the list of proxies again and again, each request as soon
+// as the previous one is answered, for as long as the deployment runs, and on
+// SIGTERM states what a page connecting at those moments found: answers that
+// failed, lists that were empty while proxies had been connected before, and
+// how often each of those proxies was missing. The server runs in two slots and
+// hands over at a release (torrent-tv/meta#94), so a failed answer or an empty
+// list fails the deployment. A server that ran alone before the deployment
+// cannot hand over, and then the result is only stated.
 //
 // `check` reads the expected server version from docker-compose.yml and the expected
 // nginx revision from nginx/revision.common, and verifies on the live sites:
@@ -56,16 +66,21 @@ function holdWebSocket(url) {
   });
 }
 
-const expectedVersion = () => {
-  const match = /ghcr\.io\/torrent-tv\/server:([0-9]+\.[0-9]+\.[0-9]+)@/.exec(readFileSync("docker-compose.yml", "utf8"));
-  if (!match) throw new Error("docker-compose.yml names no pinned server version");
-  return match[1];
+// The server runs in two slots, and the slot with the newer version serves, so
+// the version the site must report is the newest one pinned.
+const compareVersions = (a, b) => {
+  const [x, y] = [a, b].map((version) => version.split(".").map(Number));
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
 };
-const pinnedServerDigest = () => {
-  const match = /ghcr\.io\/torrent-tv\/server:[^@\s]+@(sha256:[0-9a-f]{64})/.exec(readFileSync("docker-compose.yml", "utf8"));
-  if (!match) throw new Error("docker-compose.yml names no pinned server digest");
-  return match[1];
+const newestPinnedServer = () => {
+  const pins = [...readFileSync("docker-compose.yml", "utf8").matchAll(/ghcr\.io\/torrent-tv\/server:([0-9]+\.[0-9]+\.[0-9]+)@(sha256:[0-9a-f]{64})/g)]
+    .map(([, version, digest]) => ({ version, digest }));
+  if (pins.length === 0) throw new Error("docker-compose.yml names no pinned server image");
+  return pins.reduce((newest, pin) => (compareVersions(pin.version, newest.version) > 0 ? pin : newest));
 };
+const expectedVersion = () => newestPinnedServer().version;
+const pinnedServerDigest = () => newestPinnedServer().digest;
 
 // The size of the pinned server image for linux/amd64 as GHCR stores it: its
 // config and compressed layers. Docker keeps these on the droplet beside the
@@ -178,6 +193,49 @@ async function check(before) {
   console.log(table);
 }
 
+async function watch(before) {
+  let strict = false;
+  try {
+    const { instance } = await (await get(`${SITE}/healthz`)).json();
+    strict = Boolean(instance) && instance.slot !== "solo";
+  } catch {
+    // silent-ok: a server that cannot say which slot it is predates the slots.
+  }
+  let stopping = false;
+  process.on("SIGTERM", () => { stopping = true; });
+  const started = Date.now();
+  const samples = { total: 0, failed: 0, empty: 0, firstProblem: null };
+  const missing = new Map(before.map((id) => [id, 0]));
+  while (!stopping) {
+    samples.total += 1;
+    try {
+      const now = new Set(await proxies());
+      if (now.size === 0 && before.length > 0) {
+        samples.empty += 1;
+        samples.firstProblem ??= `${((Date.now() - started) / 1000).toFixed(1)} s: empty list`;
+      }
+      for (const id of before) if (!now.has(id)) missing.set(id, missing.get(id) + 1);
+    } catch (error) {
+      samples.failed += 1;
+      samples.firstProblem ??= `${((Date.now() - started) / 1000).toFixed(1)} s: ${error.message}`;
+    }
+  }
+  const absent = [...missing].filter(([, count]) => count > 0).map(([id, count]) => `${id} missing from ${count}`);
+  const text = [
+    `${samples.total} answers in ${((Date.now() - started) / 1000).toFixed(1)} s: ${samples.failed} failed, ${samples.empty} empty`,
+    absent.length ? `proxies missing at times: ${absent.join(", ")}` : "every proxy connected before was listed every time",
+    samples.firstProblem ? `first problem at ${samples.firstProblem}` : null,
+    strict ? null : "the server ran alone before the deployment, so this is not a failure"
+  ].filter(Boolean).join("; ");
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### What a connecting page found during the deployment\n\n${text}\n`);
+  if (strict && (samples.failed > 0 || samples.empty > 0)) {
+    console.log(`::error::during the deployment: ${text}`);
+    process.exitCode = 1;
+  } else {
+    console.log(`during the deployment: ${text}`);
+  }
+}
+
 const [mode, file] = process.argv.slice(2);
 if (mode === "proxies") {
   process.stdout.write(`${JSON.stringify(await proxies())}\n`);
@@ -195,6 +253,8 @@ ${text}
     console.log(`::error::disk space: ${error.message}`);
     process.exitCode = 1;
   }
+} else if (mode === "watch") {
+  await watch(file ? JSON.parse(readFileSync(file, "utf8")) : []);
 } else {
-  throw new Error("usage: verify-site.mjs proxies | check [before.json] | disk");
+  throw new Error("usage: verify-site.mjs proxies | check [before.json] | disk | watch [before.json]");
 }
