@@ -138,5 +138,15 @@ webhook, follows the run, and checks the live site and page from outside. CI has
 no login to the host. doco-cd itself (`host/doco-cd/`) is updated by hand.
 Details, bootstrap and rollback: README and torrent-tv/meta#93.
 
+## Logs
+
+Every container on the droplet logs to the host journal (`journald` driver, tag
+`torrent-tv-<source>`), and rsyslog writes one file per source to
+`/var/log/torrent-tv/`: `server.log`, `client.log` (browser lines forwarded to the
+server), `nginx.log`, `doco-cd.log`. They survive deployments; `docker logs`
+shows only the current container. `TTV_LOG_DRIVER` picks another driver at
+start. The rsyslog rule and the rotation (`host/logs/`) are installed by hand.
+How to read them, retention and installation: README, "Logs" (meta#96).
+
 The droplet has been applied by doco-cd since 2026-10-03 (meta#93). Change it by
 pushing to `main`; `prod.sh` is only for when doco-cd itself is down.
