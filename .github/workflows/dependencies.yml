@@ -4,6 +4,10 @@ name: Dependencies
 # its main line this way), push the change to main and start the main workflow,
 # which checks it and deploys it. Fails while doco-cd has a release newer than the
 # pinned one, since doco-cd is updated by hand.
+#
+# Also daily: check that the droplet still has room for the next server image, so
+# a disk that fills between deployments fails a run instead of the next release
+# (torrent-tv/meta#71).
 
 on:
   schedule:
@@ -50,3 +54,17 @@ jobs:
             git pull --rebase origin main
           done
           exit 1
+
+  disk:
+    name: Disk space
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/verify-site.mjs disk

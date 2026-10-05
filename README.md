@@ -125,8 +125,9 @@ compose file is applied from there); doco-cd keeps its data in
    from outside: static files, `/env.js` reports the pinned server version,
    `/_infra/revision` equals the committed revision (nginx accepted the new
    configuration on SIGHUP), the signalling WebSocket opens, every proxy connected
-   before is back; and a headless browser checks the page lists proxies and shows
-   the file picker. No torrent is involved.
+   before is back, the droplet has room for the next server image (see
+   [Disk space](#disk-space)); and a headless browser checks the page lists proxies
+   and shows the file picker. No torrent is involved.
 
 A configuration change reloads nginx without recreating it: doco-cd updates the
 mounted files and sends SIGHUP. nginx checks the new configuration itself and
@@ -161,6 +162,30 @@ docker compose -p doco-cd down
 cd /websites/infra && git checkout <snapshot revision>
 docker compose -p infra -f docker-compose.yml -f docker-compose.prod.yml -f /websites/rollback/<date>/images.yml up -d --remove-orphans --pull never
 ```
+
+### Disk space
+
+A full disk once stopped every release from rolling out, and nothing said so: on
+2026-09-05 Docker held 285 images (20.68 GB) on the 24 GB droplet, and watchtower
+could no longer pull (torrent-tv/meta#71). Three things keep that from recurring:
+
+1. **Old images are removed at each deployment.** `prune_images: true` in
+   `.doco-cd.yaml` makes doco-cd remove the previous image of every service whose
+   image changed. Checked 2026-10-05: 24 server releases through doco-cd left no
+   image behind. The 61 nameless images still on disk were all pulled by
+   watchtower before 2026-10-03; removing them with `docker image prune -f` freed
+   4.76 GB (`df`: 9.59 GB used before, 4.83 GB after).
+2. **A rollout that did not happen fails CI.** After every deployment
+   `scripts/verify-site.mjs` checks that `/env.js` reports the pinned server
+   version, and the server's own release waits for the same.
+3. **Free space is measured.** The server's `GET /health` states `disk:
+   { freeBytes, reserveBytes }` for the filesystem holding its cache, which on the
+   droplet is the one holding Docker's images too. `verify-site.mjs disk` fails
+   when the free space is below the cache reserve plus the size of the pinned
+   server image as GHCR stores it (config and compressed layers). That size is a
+   lower bound of what the next pull needs: Docker also keeps the unpacked layers.
+   It runs after every deployment and daily in the Dependencies workflow, and
+   writes the figures into the job summary.
 
 ### By hand, when doco-cd is not available
 
