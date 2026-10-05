@@ -232,6 +232,14 @@ ssh do 'journalctl -t torrent-tv-server --since "2026-10-05 09:00" --until "2026
 the `journald` driver Docker reads the journal by container id, and a deployment
 gives the server a new one. Use the files or `journalctl -t` for anything older.
 
+Do not leave `docker logs` running on the host. On 2026-10-05 three `docker logs
+--tail N infra-server-1` started on 2026-09-11 were still running: they read the
+deleted `json-file` log of a container replaced long before, and dockerd spun on
+that read at 95-100 % of the droplet's single CPU for 24 days, leaving the server
+the rest. Stopping them took dockerd to 1 tick in 1000 and `docker image ls` from
+29 s to 0.5 s. Read the files above; if `docker logs` is needed, bound it with
+`timeout`.
+
 Retention: the files rotate daily, and earlier once a file passes 100 MB when
 logrotate next runs; fourteen turns are kept, compressed
 ([`host/logs/torrent-tv.logrotate`](host/logs/torrent-tv.logrotate)). The journal
