@@ -2,6 +2,7 @@
 //
 //   node scripts/verify-site.mjs proxies > before.json      # before applying
 //   node scripts/verify-site.mjs check before.json           # after applying
+//   node scripts/verify-site.mjs disk                        # daily
 //
 // `check` reads the expected server version from docker-compose.yml and the expected
 // nginx revision from nginx/revision.common, and verifies on the live sites:
@@ -9,7 +10,8 @@
 //   2. /env.js (cache-busted, no-cache) reports the expected server version;
 //   3. /_infra/revision equals the revision of this commit (nginx accepted it);
 //   4. wss://webauth.courses/ws/browser-signal opens and stays open;
-//   5. every proxy connected before is listed again within 120 s.
+//   5. every proxy connected before is listed again within 120 s;
+//   6. the droplet has room for the next server image (see `disk` below).
 // It retries each check until DEADLINE_MS, so a container that is still starting
 // is waited for, and it writes the time each check took into the job summary.
 import { appendFileSync, readFileSync } from "node:fs";
@@ -59,6 +61,64 @@ const expectedVersion = () => {
   if (!match) throw new Error("docker-compose.yml names no pinned server version");
   return match[1];
 };
+const pinnedServerDigest = () => {
+  const match = /ghcr\.io\/torrent-tv\/server:[^@\s]+@(sha256:[0-9a-f]{64})/.exec(readFileSync("docker-compose.yml", "utf8"));
+  if (!match) throw new Error("docker-compose.yml names no pinned server digest");
+  return match[1];
+};
+
+// The size of the pinned server image for linux/amd64 as GHCR stores it: its
+// config and compressed layers. Docker keeps these on the droplet beside the
+// unpacked layers, so the next pull needs at least this much and in practice
+// more; it is a lower bound, not the whole cost.
+async function serverImageBytes() {
+  const repository = "torrent-tv/server";
+  const tokenResponse = await fetch(`https://ghcr.io/token?scope=repository:${repository}:pull`, { signal: AbortSignal.timeout(10_000) });
+  if (!tokenResponse.ok) throw new Error(`GHCR token answered ${tokenResponse.status}`);
+  const { token } = await tokenResponse.json();
+  const manifest = async (reference) => {
+    const response = await fetch(`https://ghcr.io/v2/${repository}/manifests/${reference}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: [
+          "application/vnd.oci.image.index.v1+json",
+          "application/vnd.oci.image.manifest.v1+json",
+          "application/vnd.docker.distribution.manifest.list.v2+json",
+          "application/vnd.docker.distribution.manifest.v2+json",
+        ].join(","),
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`GHCR manifest ${reference} answered ${response.status}`);
+    return response.json();
+  };
+  let image = await manifest(pinnedServerDigest());
+  if (image.manifests) {
+    const amd64 = image.manifests.find((entry) => entry.platform?.os === "linux" && entry.platform?.architecture === "amd64");
+    if (!amd64) throw new Error("the pinned server image has no linux/amd64 manifest");
+    image = await manifest(amd64.digest);
+  }
+  return image.config.size + image.layers.reduce((sum, layer) => sum + layer.size, 0);
+}
+
+const mib = (bytes) => `${(bytes / 1024 ** 2).toFixed(0)} MiB`;
+
+// What the server states about the filesystem holding its cache, which on the
+// droplet also holds Docker's images (torrent-tv/meta#71). A full disk once
+// stopped every release from rolling out, unnoticed. The check fails when the
+// next pull of the server image would eat into the reserve the server cache keeps.
+async function diskSpace() {
+  const response = await get(`${SITE}/health`);
+  if (!response.ok) throw new Error(`/health answered ${response.status}`);
+  const { disk } = await response.json();
+  if (!disk) throw new Error("/health states no disk space");
+  const imageBytes = await serverImageBytes();
+  const neededBytes = disk.reserveBytes + imageBytes;
+  const text = `${mib(disk.freeBytes)} free; the next server image needs at least ${mib(imageBytes)} above the cache reserve of ${mib(disk.reserveBytes)}`;
+  if (disk.freeBytes < neededBytes) throw new Error(`the droplet has ${text}`);
+  return text;
+}
+
 const expectedRevision = () => {
   const match = /return 200 "([0-9]+)\\n";/.exec(readFileSync("nginx/revision.common", "utf8"));
   if (!match) throw new Error("nginx/revision.common states no revision");
@@ -87,6 +147,7 @@ const checks = (before) => [
     const missing = before.filter((id) => !now.has(id));
     if (missing.length) throw new Error(`not reconnected yet: ${missing.join(", ")}`);
   }],
+  ["disk space", async () => console.log(`disk: ${await diskSpace()}`)],
 ];
 
 async function check(before) {
@@ -122,6 +183,18 @@ if (mode === "proxies") {
   process.stdout.write(`${JSON.stringify(await proxies())}\n`);
 } else if (mode === "check") {
   await check(file ? JSON.parse(readFileSync(file, "utf8")) : []);
+} else if (mode === "disk") {
+  try {
+    const text = await diskSpace();
+    console.log(`ok: disk space: ${text}`);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Droplet disk
+
+${text}
+`);
+  } catch (error) {
+    console.log(`::error::disk space: ${error.message}`);
+    process.exitCode = 1;
+  }
 } else {
-  throw new Error("usage: verify-site.mjs proxies | check [before.json]");
+  throw new Error("usage: verify-site.mjs proxies | check [before.json] | disk");
 }
