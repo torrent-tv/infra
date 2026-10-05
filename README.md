@@ -94,6 +94,7 @@ infra/
 ├── docker-compose.local.yml     # dev overlay: build server from ../server source
 ├── .doco-cd.yaml                # how doco-cd applies this repository (production branch)
 ├── host/doco-cd/                # doco-cd itself, applied by hand
+├── host/logs/                   # rsyslog rule and rotation for the log files, installed by hand
 ├── prod.sh                      # apply by hand when doco-cd is not available
 ├── scripts/                     # deploy, site and page checks, digest updates
 └── nginx/
@@ -148,6 +149,8 @@ The `deploy` job is off until the `production` environment has `DEPLOY_URL`
    On start it applies `production` at once (and removes watchtower, an orphan of
    the `infra` project now). A second run, if needed, goes through loopback:
    `curl -fsS -X POST -H "x-api-key: …" "http://127.0.0.1:8090/v1/api/poll/run?wait=true"`.
+   Install the log files' rule and rotation first (see [Logs](#logs)), so the
+   first lines of every container already land in their files.
 4. Run the main workflow by hand to check the site, then set `DEPLOY_URL` and the
    two secrets in the `production` environment.
 
@@ -164,6 +167,69 @@ docker compose -p infra -f docker-compose.yml -f docker-compose.prod.yml -f /web
 ```bash
 cd /websites/infra && git checkout production && git pull && ./prod.sh
 ```
+
+## Logs
+
+Every container of this host — `server`, `nginx` and `doco-cd` — logs through
+Docker's `journald` driver with a tag naming its source. The lines therefore live
+in the host journal, not in the container, and outlive the container that every
+deployment recreates. Before torrent-tv/meta#96 they used the `json-file` driver
+and were deleted with the container on each deployment.
+
+journald forwards each line to rsyslog, and the rule in
+[`host/logs/30-torrent-tv.conf`](host/logs/30-torrent-tv.conf) writes it to a
+plain-text file named by its source:
+
+| File | Source | Journal tag |
+|------|--------|-------------|
+| `/var/log/torrent-tv/server.log` | the server's own output | `torrent-tv-server` |
+| `/var/log/torrent-tv/client.log` | browser lines forwarded to `POST /api/client-logs` | `torrent-tv-server`, line begins with `[client ` |
+| `/var/log/torrent-tv/nginx.log` | nginx access and error log | `torrent-tv-nginx` |
+| `/var/log/torrent-tv/doco-cd.log` | doco-cd's deployments | `torrent-tv-doco-cd` |
+
+Each line begins with the host's time (RFC 3339, microseconds, UTC) and the tag.
+A browser line also carries the browser's own time and the session ids: `[client
+<device> <sessionId> sig=<signalSessionId>] <HH:MM:SS.mmm> <level>: …`. The `sig`
+id is the one the proxy prints as `[webrtc] Session <id>`. The browser writes to
+the droplet only until it has a data channel and when the page unloads; the rest
+of a viewing is on the proxy (`proxy/docs/logs.md`).
+
+Reading:
+
+```bash
+ssh do 'tail -n 500 /var/log/torrent-tv/client.log'
+ssh do 'grep sig=<signalSessionId> /var/log/torrent-tv/client.log'
+ssh do 'zgrep -h <text> /var/log/torrent-tv/server.log*'   # rotated turns too; not in time order
+ssh do 'journalctl -t torrent-tv-server --since "2026-10-05 09:00" --until "2026-10-05 10:00" -o short-iso-precise'
+```
+
+`docker logs infra-server-1` shows only the lines of the CURRENT container: with
+the `journald` driver Docker reads the journal by container id, and a deployment
+gives the server a new one. Use the files or `journalctl -t` for anything older.
+
+Retention: the files rotate daily, and earlier once a file passes 100 MB when
+logrotate next runs; fourteen turns are kept, compressed
+([`host/logs/torrent-tv.logrotate`](host/logs/torrent-tv.logrotate)). The journal
+is bounded by journald's own limit, 10 % of the file system. Both figures are a
+choice of how much to keep, not a measurement.
+
+Control at start: `TTV_LOG_DRIVER` picks the Docker logging driver for every
+service (default `journald`; `docker-compose.local.yml` defaults it to
+`json-file`, since Docker Desktop has no journald). The tag is fixed per service,
+because the file it lands in is chosen by it.
+
+Installing the rule and the rotation on a host (by hand: CI has no login to the
+host):
+
+```bash
+install -m 644 /websites/infra/host/logs/30-torrent-tv.conf /etc/rsyslog.d/30-torrent-tv.conf
+install -m 644 /websites/infra/host/logs/torrent-tv.logrotate /etc/logrotate.d/torrent-tv
+install -d -o syslog -g adm -m 0755 /var/log/torrent-tv
+rsyslogd -N1 && systemctl restart rsyslog
+```
+
+`rsyslogd -N1` checks the whole configuration first: an invalid rule leaves
+rsyslog writing nothing at all until it is fixed.
 
 ## Local Development
 
@@ -239,6 +305,7 @@ set $upstream http://server:8080;
 | `PORT` | `8080` | `docker-compose.yml` |
 | `NODE_ENV` | `production` | Server `Dockerfile` |
 | `TMDB_READ_TOKEN_FILE` | `/run/secrets/torrent-tv/tmdb_read_token` | `docker-compose.yml` |
+| `TTV_LOG_DRIVER` | `journald` (`json-file` with `docker-compose.local.yml`) | the shell or `.env` at `docker compose up`; see [Logs](#logs) |
 
 ## Server cache and subtitle providers
 
@@ -297,7 +364,7 @@ Then recreate the server container so it reads the file:
 
 **A deployment failed in CI**
 The `deploy` job prints doco-cd's verdict and every check that did not pass.
-doco-cd's own log: `docker logs doco-cd-doco-cd-1`.
+doco-cd's own log: `/var/log/torrent-tv/doco-cd.log` (see [Logs](#logs)).
 
 **WebSocket connections drop after 100 s behind Cloudflare**
 Cloudflare's free plan has a 100 s WebSocket idle timeout. The proxy tunnel and browser signalling WebSocket reconnect by themselves.

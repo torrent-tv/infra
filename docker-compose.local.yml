@@ -3,3 +3,9 @@ services:
     build:
       context: ../server
     image: ghcr.io/torrent-tv/server:latest
+    # Docker Desktop has no journald; locally the logs stay with the container.
+    logging:
+      driver: ${TTV_LOG_DRIVER:-json-file}
+  nginx:
+    logging:
+      driver: ${TTV_LOG_DRIVER:-json-file}

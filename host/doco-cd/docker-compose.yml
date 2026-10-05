@@ -35,6 +35,13 @@ services:
     # which is what the first deployment uses before nginx has the route.
     ports:
       - "127.0.0.1:8090:80"
+    # Its deployment log outlives the container too: the host journal, then
+    # /var/log/torrent-tv/doco-cd.log (host/logs/, README "Logs").
+    # TTV_LOG_DRIVER chooses another driver at start.
+    logging:
+      driver: ${TTV_LOG_DRIVER:-journald}
+      options:
+        tag: torrent-tv-doco-cd
     networks:
       - infra
     # Measured 36-38 MiB at rest and while applying (2026-10-03, doco-cd 0.123.0).

@@ -1,0 +1,21 @@
+# logrotate: rotation of the per-source files written by 30-torrent-tv.conf.
+# Installed by hand as /etc/logrotate.d/torrent-tv (see README, "Logs").
+#
+# Retention is a policy, not a measurement: fourteen turns, a turn at least
+# daily and earlier once a file passes 100 MB when logrotate next runs. The
+# droplet's disk filled once (24 GB of old images), so the files are bounded
+# here; the journal is bounded separately by journald (10 % of the file system).
+
+/var/log/torrent-tv/*.log {
+	daily
+	maxsize 100M
+	rotate 14
+	missingok
+	notifempty
+	compress
+	delaycompress
+	sharedscripts
+	postrotate
+		/usr/lib/rsyslog/rsyslog-rotate
+	endscript
+}

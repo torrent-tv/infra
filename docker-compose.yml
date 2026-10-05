@@ -30,6 +30,14 @@ services:
       SERVER_CACHE_DIR: /app/cache
       SERVER_CACHE_MIB: "1024"
       SERVER_CACHE_RESERVE_MIB: "256"
+    # Logs go to the host journal, so they outlive the container that every
+    # deployment recreates; rsyslog then writes them to a file named by the tag
+    # (host/logs/, README "Logs"). TTV_LOG_DRIVER chooses another driver at start,
+    # e.g. json-file where there is no journald.
+    logging:
+      driver: ${TTV_LOG_DRIVER:-journald}
+      options:
+        tag: torrent-tv-server
     volumes:
       - torrent-tv-server-cache:/app/cache
       - torrent-tv-server-static:/app/public-volume
@@ -44,6 +52,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    # The same as the server's: the journal, a file per source, TTV_LOG_DRIVER.
+    logging:
+      driver: ${TTV_LOG_DRIVER:-journald}
+      options:
+        tag: torrent-tv-nginx
     volumes:
       - ./nginx:/etc/nginx/conf.d:ro
       - torrent-tv-server-static:/var/www/static/torrent-tv/server:ro
