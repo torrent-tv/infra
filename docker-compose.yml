@@ -41,17 +41,16 @@ x-server: &server
   volumes:
     - torrent-tv-server-cache:/app/cache
     - torrent-tv-server-static:/app/public-volume
-    # The TMDB token, as a file placed on the host by hand and never in git.
-    # An absolute path: doco-cd deploys each revision from its own copy of the
-    # repository, so a relative path would point into a copy without the file.
-    # The file must be readable by the container's `app` user (uid 100); see README.
-    - /websites/infra/secrets:/run/secrets/torrent-tv:ro
 
 x-server-environment: &server-environment
   PORT: "8080"
-  TMDB_READ_TOKEN_FILE: /run/secrets/torrent-tv/tmdb_read_token
-  OPENSUBTITLES_API_KEY_FILE: /run/secrets/torrent-tv/opensubtitles_api_key
-  JIMAKU_API_KEY_FILE: /run/secrets/torrent-tv/jimaku_api_key
+  # Secrets come from GitHub through the deploy pipeline (README, "Secrets");
+  # an unset one disables its provider without preventing startup.
+  TMDB_READ_TOKEN: ${TMDB_READ_TOKEN:-}
+  OPENSUBTITLES_API_KEY: ${OPENSUBTITLES_API_KEY:-}
+  JIMAKU_API_KEY: ${JIMAKU_API_KEY:-}
+  STASHDB_API_KEY: ${STASHDB_API_KEY:-}
+  THEPORNDB_API_KEY: ${THEPORNDB_API_KEY:-}
   SERVER_CACHE_DIR: /app/cache
   SERVER_CACHE_MIB: "1024"
   SERVER_CACHE_RESERVE_MIB: "256"

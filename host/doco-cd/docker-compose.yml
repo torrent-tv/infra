@@ -26,6 +26,13 @@ services:
       API_SECRET_FILE: /run/secrets/doco-cd/api_secret
       POLL_CONFIG_FILE: /etc/doco-cd/poll.yaml
       SELF_UPDATE_ENABLED: "false"
+      # The production secrets reach the stack as the environment of this container
+      # (env_file below) and, with PASS_ENV, its compose interpolation. The file is
+      # written by the deploy pipeline (host/secrets/apply-secrets.sh).
+      PASS_ENV: "true"
+    env_file:
+      - path: /websites/infra/secrets.env
+        required: false
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /websites/doco-cd/data:/data

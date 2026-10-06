@@ -92,6 +92,38 @@ jobs:
         if: steps.configured.outputs.on == 'true'
         run: node scripts/verify-site.mjs proxies > "$RUNNER_TEMP/proxies-before.json"
 
+      # The secrets live only in GitHub. They are sent over an SSH key that can run
+      # one command on the droplet (host/secrets/apply-secrets.sh, forced in
+      # authorized_keys), which writes them where doco-cd reads its environment.
+      # Before the apply, so the deployment that follows starts the services with them.
+      - name: Deliver the secrets
+        if: steps.configured.outputs.on == 'true'
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_HOST: ${{ vars.DEPLOY_SSH_HOST }}
+          SSH_KNOWN_HOSTS: ${{ vars.DEPLOY_SSH_KNOWN_HOSTS }}
+          TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+          OPENSUBTITLES_API_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
+          JIMAKU_API_KEY: ${{ secrets.JIMAKU_API_KEY }}
+          STASHDB_API_KEY: ${{ secrets.STASHDB_API_KEY }}
+          THEPORNDB_API_KEY: ${{ secrets.THEPORNDB_API_KEY }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$SSH_HOST" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::notice::DEPLOY_SSH_KEY, DEPLOY_SSH_HOST or DEPLOY_SSH_KNOWN_HOSTS is not set; the secrets are not delivered"
+            exit 0
+          fi
+          install -m 600 /dev/null "$RUNNER_TEMP/deploy_key"
+          printf '%s
+' "$SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          printf '%s
+' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          for name in TMDB_READ_TOKEN OPENSUBTITLES_API_KEY JIMAKU_API_KEY STASHDB_API_KEY THEPORNDB_API_KEY; do
+            value=${!name}
+            if [ -n "$value" ]; then printf '%s=%s
+' "$name" "$value"; fi
+          done | ssh -i "$RUNNER_TEMP/deploy_key" -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "root@$SSH_HOST" ttv-apply-secrets
+          rm -f "$RUNNER_TEMP/deploy_key"
+
       - name: Move production and apply
         id: deploy
         if: steps.configured.outputs.on == 'true'

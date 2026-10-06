@@ -374,7 +374,7 @@ proxy_next_upstream error timeout http_502 http_503 non_idempotent;
 |----------|---------|--------|
 | `PORT` | `8080` | `docker-compose.yml` |
 | `NODE_ENV` | `production` | Server `Dockerfile` |
-| `TMDB_READ_TOKEN_FILE` | `/run/secrets/torrent-tv/tmdb_read_token` | `docker-compose.yml` |
+| `TMDB_READ_TOKEN`, `OPENSUBTITLES_API_KEY`, `JIMAKU_API_KEY`, `STASHDB_API_KEY`, `THEPORNDB_API_KEY` | unset (the provider is off) | GitHub secrets, delivered by the pipeline; see [Secrets](#secrets) |
 | `TTV_LOG_DRIVER` | `journald` (`json-file` with `docker-compose.local.yml`) | the shell or `.env` at `docker compose up`; see [Logs](#logs) |
 
 ## Server cache and subtitle providers
@@ -386,49 +386,37 @@ to 1024 MiB initially; entries are evicted by last access across all namespaces.
 The server reserves 256 MiB of free disk space before a cache write. The volume
 survives image replacement and is owned by the image's `app` user.
 
-Provider credentials follow the existing file-secret convention:
-
-1. `/websites/infra/secrets/opensubtitles_api_key`, exposed only through
-   `OPENSUBTITLES_API_KEY_FILE`.
-2. `/websites/infra/secrets/jimaku_api_key`, exposed only through
-   `JIMAKU_API_KEY_FILE`.
-
-Both files need uid 100 ownership and mode 400, like the TMDB token. Missing keys
-disable their provider without preventing server startup. GitHub repository
-secrets `OPENSUBTITLES_API_KEY` and `JIMAKU_API_KEY` are stored separately;
-CI never places them in an image and has no SSH access to the host. Rotate the
-host files and restart the server when rotating a provider key.
+Provider credentials are environment variables of the server, delivered like
+every other secret (see [Secrets](#secrets)). A missing one disables its
+provider without preventing server startup.
 
 ## Secrets
 
-Secrets are files in `secrets/` next to `docker-compose.yml`, placed on the
-droplet by hand. The directory is in this repository (holding only
-`.gitkeep`); everything else in it is ignored by git, so a secret can never be
-committed.
+Secrets are stored only as GitHub secrets of the `production` environment of
+this repository: `TMDB_READ_TOKEN`, `OPENSUBTITLES_API_KEY`, `JIMAKU_API_KEY`,
+`STASHDB_API_KEY`, `THEPORNDB_API_KEY`. Nothing is placed on the droplet by hand
+and no secret is in git, in an image or in a file the server reads.
 
-`docker-compose.yml` mounts `/websites/infra/secrets` (an absolute path: doco-cd
-deploys from its own copy of the repository) read-only into the server container at
-`/run/secrets/torrent-tv`, and passes the PATH of each file in an environment
-variable — never the value. The value is therefore not in the image, not in
-the container's environment and not in `docker inspect`. Because the directory
-always exists, the container starts without any secret in it; the feature that
-needs it is then off and says so in the log.
+How a value gets from GitHub to the server's environment:
 
-| File | Used for | Read by |
-|------|----------|---------|
-| `secrets/tmdb_read_token` | TMDB API Read Access Token (film titles, episode names, images) | server, once at startup; logs `TMDB token loaded` or why not |
+1. The deploy job (`Deliver the secrets`) sends the names and values over SSH to
+   the droplet. The key (`DEPLOY_SSH_KEY`) is restricted in `authorized_keys` to one
+   command, `/usr/local/sbin/ttv-apply-secrets` (`host/secrets/apply-secrets.sh`), so
+   it can do nothing else on the host. The host is pinned by `DEPLOY_SSH_KNOWN_HOSTS`
+   and addressed by `DEPLOY_SSH_HOST`, both variables of the environment.
+2. The command accepts only the five names above and values of a restricted
+   alphabet, writes `/websites/infra/secrets.env` (mode 600) and, when it changed,
+   recreates doco-cd.
+3. doco-cd reads the file as its own environment (`env_file`) and hands it to the
+   compose interpolation (`PASS_ENV`), so `${STASHDB_API_KEY:-}` in
+   `docker-compose.yml` has the value. The deployment that follows starts the
+   services with it.
 
-The server runs as the image's `app` user, uid 100 in the current image
-(`docker exec infra-server-a-1 id`). A secret must be readable by it: owner
-uid 100, mode `400`. Put the token there without it
-reaching the shell history or the screen:
-
-```bash
-ssh -t do 'umask 077 && read -rsp "TMDB token: " T && printf "%s" "$T" > /websites/infra/secrets/tmdb_read_token && chown 100:101 /websites/infra/secrets/tmdb_read_token && chmod 400 /websites/infra/secrets/tmdb_read_token && echo && ls -ln /websites/infra/secrets'
-```
-
-Then recreate the server container so it reads the file:
-`docker compose -p infra -f /websites/infra/docker-compose.yml up -d --force-recreate server`.
+To add or rotate a secret: set the GitHub secret (`gh secret set NAME --repo
+torrent-tv/infra --env production`), add a new name to `apply-secrets.sh`, the
+workflow step and `docker-compose.yml` if it is new, and let the next deployment
+run. doco-cd does not redeploy a commit it has already applied, so a rotation
+that changes only a value takes effect with the next commit that is deployed.
 
 ## Troubleshooting
 
