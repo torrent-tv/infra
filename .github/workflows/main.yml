@@ -113,14 +113,11 @@ jobs:
             exit 0
           fi
           install -m 600 /dev/null "$RUNNER_TEMP/deploy_key"
-          printf '%s
-' "$SSH_KEY" > "$RUNNER_TEMP/deploy_key"
-          printf '%s
-' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
           for name in TMDB_READ_TOKEN OPENSUBTITLES_API_KEY JIMAKU_API_KEY STASHDB_API_KEY THEPORNDB_API_KEY; do
             value=${!name}
-            if [ -n "$value" ]; then printf '%s=%s
-' "$name" "$value"; fi
+            if [ -n "$value" ]; then printf '%s=%s\n' "$name" "$value"; fi
           done | ssh -i "$RUNNER_TEMP/deploy_key" -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "root@$SSH_HOST" ttv-apply-secrets
           rm -f "$RUNNER_TEMP/deploy_key"
 
