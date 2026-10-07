@@ -4,6 +4,19 @@
 //   node scripts/verify-site.mjs check before.json           # after applying
 //   node scripts/verify-site.mjs disk                        # daily
 //   node scripts/verify-site.mjs watch before.json           # while applying, until SIGTERM
+//   node scripts/verify-site.mjs handover                    # after applying, until it ends
+//
+// `handover` waits for the server's own handover to end, which doco-cd does not
+// wait for: doco-cd reports a deployment done once the new slot's container
+// runs, while that instance serves only after every proxy that follows moves has
+// reached it (torrent-tv/meta#94). That took 0.5 s in most releases and 610 s
+// on 2026-10-06, when the one proxy's main thread stalled for about a minute at
+// a time (torrent-tv/meta#140), so no fixed window fits it. The wait reads each
+// slot's state from `/healthz` and ends when the slot running the newest pinned
+// version serves and no slot is still starting, taking over, handing over or
+// draining. While a handover is under way it waits without a deadline; the
+// deadline applies only to the new version not appearing at all. It fails at
+// once when the new version's slot stands by while the other one serves.
 //
 // `watch` asks for the list of proxies again and again, each request as soon
 // as the previous one is answered, for as long as the deployment runs, and on
@@ -25,6 +38,8 @@
 // It retries each check until DEADLINE_MS, so a container that is still starting
 // is waited for, and it writes the time each check took into the job summary.
 import { appendFileSync, readFileSync } from "node:fs";
+
+import { handoverVerdict } from "./handover-verdict.mjs";
 
 const SITE = process.env.SITE ?? "https://webauth.courses";
 const DEADLINE_MS = Number(process.env.VERIFY_DEADLINE_MS ?? 120_000);
@@ -236,6 +251,60 @@ async function watch(before) {
   }
 }
 
+// The slots named in docker-compose.yml (`SERVER_SLOT`); none means one server
+// that serves alone.
+const composeSlots = () => {
+  const slots = [...readFileSync("docker-compose.yml", "utf8").matchAll(/SERVER_SLOT: "([^"]+)"/g)].map(([, slot]) => slot);
+  return slots.length ? slots : ["solo"];
+};
+
+async function handover() {
+  const version = expectedVersion();
+  const slots = composeSlots();
+  const started = Date.now();
+  const reports = new Map();
+  let said = null;
+  let last = null;
+  for (;;) {
+    try {
+      const response = await get(`${SITE}/healthz`);
+      const body = await response.json();
+      if (response.ok && body.instance) {
+        // A slot's report from before the new version answered says nothing
+        // about the handover, which starts only when that instance runs.
+        if (body.version === version && ![...reports.values()].some((report) => report.version === version)) reports.clear();
+        reports.set(body.instance.slot, { version: body.version, state: body.instance.state });
+      }
+    } catch (error) {
+      // silent-ok: a slot that is restarting does not answer; the next request reaches one that does.
+      last = error.message;
+    }
+    const { verdict, text } = handoverVerdict(reports, slots, version);
+    const seconds = ((Date.now() - started) / 1000).toFixed(1);
+    if (text !== said) {
+      console.log(`${seconds} s: ${text}`);
+      said = text;
+    }
+    if (verdict === "done") {
+      const line = `the handover to ${version} ended after ${seconds} s: ${text}`;
+      console.log(`ok: ${line}`);
+      if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Server handover\n\n${line}\n`);
+      return;
+    }
+    if (verdict === "standby") {
+      console.log(`::error::the slot running ${version} stands by while the other serves: ${text}`);
+      process.exitCode = 1;
+      return;
+    }
+    if ((verdict === "absent" || verdict === "unseen") && Date.now() - started > DEADLINE_MS) {
+      console.log(`::error::no handover to ${version} after ${seconds} s: ${text}${last ? ` (last error: ${last})` : ""}`);
+      process.exitCode = 1;
+      return;
+    }
+    await sleep(RETRY_MS);
+  }
+}
+
 const [mode, file] = process.argv.slice(2);
 if (mode === "proxies") {
   process.stdout.write(`${JSON.stringify(await proxies())}\n`);
@@ -255,6 +324,8 @@ ${text}
   }
 } else if (mode === "watch") {
   await watch(file ? JSON.parse(readFileSync(file, "utf8")) : []);
+} else if (mode === "handover") {
+  await handover();
 } else {
-  throw new Error("usage: verify-site.mjs proxies | check [before.json] | disk | watch [before.json]");
+  throw new Error("usage: verify-site.mjs proxies | check [before.json] | disk | watch [before.json] | handover");
 }

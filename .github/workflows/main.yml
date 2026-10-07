@@ -130,11 +130,17 @@ jobs:
         # While the deployment is applied, the watcher asks for the list of
         # proxies as a connecting page would; with two server slots a failed
         # answer or an empty list fails the job (verify-site.mjs, torrent-tv/meta#94).
+        # doco-cd reports done once the new slot runs, but the server's handover
+        # ends later — after 610 s once (torrent-tv/meta#140) — so the watcher
+        # also covers the wait for that handover to end.
         run: |
           node scripts/verify-site.mjs watch "$RUNNER_TEMP/proxies-before.json" &
           watcher=$!
           deployed=0
           node scripts/deploy.mjs || deployed=$?
+          if [ "$deployed" -eq 0 ] && ! grep -q '^outcome=stale$' "$GITHUB_OUTPUT"; then
+            node scripts/verify-site.mjs handover || deployed=$?
+          fi
           kill -TERM "$watcher"
           watched=0
           wait "$watcher" || watched=$?
