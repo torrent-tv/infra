@@ -161,6 +161,19 @@ slot and its state (`serving`, `standby`, …). During every deployment CI asks
 for the list of proxies as a connecting page would (`verify-site.mjs watch`); a
 failed answer or an empty list fails the job.
 
+doco-cd reports a deployment done as soon as the new slot's container runs; the
+handover ends later, when the last proxy that follows moves has reached the new
+instance. That took under a second in most releases and 610 s on 2026-10-06,
+when the one proxy's main thread stalled for about a minute at a time and its
+new connection failed twice (torrent-tv/meta#140). So after doco-cd, CI waits
+for the handover itself (`verify-site.mjs handover`): it reads each slot's
+`/healthz` and ends when the slot running the newest pinned version serves and
+no slot is starting, taking over, handing over or draining. The watcher runs
+until then. There is no deadline while a handover is under way; the 120 s
+deadline applies only to the new version not appearing at all, and the job
+fails at once if that slot stands by while the other serves. The time it took
+goes into the job summary.
+
 A configuration change reloads nginx without recreating it: doco-cd updates the
 mounted files and sends SIGHUP. nginx checks the new configuration itself and
 keeps serving the old one if it is invalid. doco-cd still reports such a
