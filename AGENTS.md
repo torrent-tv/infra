@@ -1,6 +1,6 @@
 # infra — hosting & infrastructure notes
 
-nginx + docker-compose for the `webauth.courses` server. See the parent `../CLAUDE.md` for the overall architecture.
+nginx + docker-compose for the `webauth.courses` server. See the parent `../AGENTS.md` for the overall architecture.
 
 ## Current Droplet (as of June 2026)
 
@@ -67,7 +67,7 @@ Additionally, **Cloudflare's free plan prohibits serving video/large media files
 ### Decided remote-access direction
 
 Make every proxy publicly reachable **automatically** (the Plex model — full
-plan in the root `../CLAUDE.md`): UPnP port mapping on the proxy, dial-back
+plan in the root `../AGENTS.md`): UPnP port mapping on the proxy, dial-back
 reachability probe from this server, per-proxy DNS + TLS (next section). No
 relay through this droplet — video always flows directly browser→proxy. Relay
 and TURN options were evaluated and rejected (bandwidth cost above; Cloudflare
