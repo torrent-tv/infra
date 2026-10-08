@@ -4,7 +4,7 @@ context: |
   Hosting and infrastructure for the torrent-tv server (webauth.courses):
   nginx + docker-compose on a DigitalOcean droplet (s-1vcpu-1gb, AMS3) behind
   Cloudflare (orange cloud, HTTPS termination; droplet listens on HTTP :80).
-  Constraints (see CLAUDE.md for the full set):
+  Constraints (see AGENTS.md for the full set):
   - Video must NEVER flow through this server or Cloudflare (bandwidth cost +
     Cloudflare ToS). The server carries only signalling, static assets and API.
   - Planned per-proxy DNS records must be DNS-only (grey cloud), never proxied.
