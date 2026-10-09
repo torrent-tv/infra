@@ -70,7 +70,7 @@ sequenceDiagram
   NX-->>B: file from volume (nginx, no Node hit)
 
   Note over B,HA: API request
-  B->>CF: GET /api/proxy-clients/health
+  B->>CF: POST /api/proxy-clients/choose
   CF->>NX: HTTP GET
   NX->>SV: proxy_pass @node
   SV->>HA: health-request via tunnel WS

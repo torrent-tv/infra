@@ -17,10 +17,13 @@ try {
   for (;;) {
     const page = await browser.newPage();
     try {
-      const health = page.waitForResponse((response) => response.url().includes("/api/proxy-clients/health"), { timeout: 30_000 });
+      // The page asks the server for a proxy as it opens: `choose` since server
+      // 0.50 (torrent-tv/meta#36), the list of every proxy before it.
+      const asked = page.waitForResponse((response) => /\/api\/proxy-clients\/(?:choose|health)(?:\?|$)/u.test(response.url()), { timeout: 30_000 });
       await page.goto(`${SITE}/?verify=${Date.now()}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      const response = await health;
-      const proxies = response.ok() ? (await response.json()).clients?.length ?? 0 : 0;
+      const response = await asked;
+      const answer = response.ok() ? await response.json() : {};
+      const proxies = Array.isArray(answer.clients) ? answer.clients.length : answer.chosen ? (answer.candidates?.length ?? 1) : 0;
       if (proxies < 1) throw new Error(`the page found ${proxies} proxies (status ${response.status()})`);
       await page.waitForSelector("dialog#torrent[open]", { timeout: 15_000 });
       if (await page.$("dialog#error[open]")) throw new Error(`the page shows an error: ${await page.textContent("#error__description")}`);
