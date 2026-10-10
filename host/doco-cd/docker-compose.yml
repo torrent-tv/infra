@@ -17,7 +17,7 @@ name: doco-cd
 
 services:
   doco-cd:
-    image: ghcr.io/kimdre/doco-cd:0.123.0@sha256:11b474122ed530614cbe4cb8390f94b646d3fc8ba40d74c0f0b7f55a8ca719f8
+    image: ghcr.io/kimdre/doco-cd:0.125.1@sha256:38198abbda1b55da7a7f37a7924b2ccdcc0583bd24466b7c2103ef6cd2ffc828
     restart: unless-stopped
     environment:
       TZ: Etc/UTC
@@ -53,12 +53,8 @@ services:
       - infra
     # Measured 36-38 MiB at rest and while applying (2026-10-03, doco-cd 0.123.0).
     mem_limit: 128m
-    healthcheck:
-      test: ["CMD", "/doco-cd", "healthcheck"]
-      start_period: 15s
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    # Health: the image's own check (`/healthcheck`, every 30 s, 3 retries). It
+    # was overridden here with `/doco-cd healthcheck`, which 0.124.0 replaced.
 
 networks:
   infra:
