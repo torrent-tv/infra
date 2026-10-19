@@ -58,7 +58,7 @@ x-server-environment: &server-environment
 services:
   server-a:
     <<: *server
-    image: ghcr.io/torrent-tv/server:0.50.23@sha256:c739c2a7e670ebca4001de0b1c8becda71a8c90fcfd43af3ba23dc5754aad113
+    image: ghcr.io/torrent-tv/server:0.50.25@sha256:2f0b9b3abc35db5732c75ed681df8f20696b622fecd0af6957711c07d8bf6876
     environment:
       <<: *server-environment
       SERVER_SLOT: "a"
