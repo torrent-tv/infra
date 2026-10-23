@@ -17,12 +17,13 @@ permissions:
 jobs:
   checks:
     name: Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # A newer push to a pull request makes its older checks pointless; every push to
     # main gets a group of its own, so no check of main is ever replaced.
     concurrency:
       group: ${{ github.event_name == 'pull_request' && format('checks-{0}', github.ref) || format('checks-{0}', github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    # One step per check, so the run shows which check ran and which one failed.
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,31 +31,43 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: torrent-tv/.github/actions/checks@main
-        with:
-          node: "false"
-          extra-check: |
-            # Every image is pinned by digest, so the file says exactly what runs.
-            if grep -hE '^\s+image:' docker-compose.yml host/doco-cd/docker-compose.yml | grep -v '@sha256:'; then
-              echo "::error::an image above is not pinned by digest"
-              exit 1
-            fi
-            docker compose -f docker-compose.yml config --quiet
-            docker compose -f host/doco-cd/docker-compose.yml config --quiet
-            # The configuration, checked by the nginx image that will run it.
-            image=$(sed -nE 's/^\s+image:\s+(nginx:\S+)$/\1/p' docker-compose.yml)
-            docker run --rm -v "$PWD/nginx:/etc/nginx/conf.d:ro" "$image" nginx -t
-            # A change under nginx/ raises the revision CI reads back after deploying.
-            base="${{ github.event.pull_request.base.sha || github.event.before }}"
-            if [ -n "$base" ] && ! [[ "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
-              node scripts/check-nginx-revision.mjs "$base..${{ github.sha }}"
-            fi
+      - name: Commit messages follow Conventional Commits
+        uses: torrent-tv/.github/actions/check-commits@main
+      - name: Branch name names a task
+        uses: torrent-tv/.github/actions/check-branch@main
+      - name: Shell scripts and Dockerfiles use LF
+        uses: torrent-tv/.github/actions/check-line-endings@main
+      - name: Workflows are valid
+        uses: torrent-tv/.github/actions/check-workflows@main
+      - name: Every image is pinned by digest
+        # So the file says exactly what runs.
+        run: |
+          if grep -hE '^\s+image:' docker-compose.yml host/doco-cd/docker-compose.yml | grep -v '@sha256:'; then
+            echo "::error::an image above is not pinned by digest"
+            exit 1
+          fi
+      - name: Compose files are valid
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f host/doco-cd/docker-compose.yml config --quiet
+      - name: nginx accepts the configuration
+        # Checked by the nginx image that will run it.
+        run: |
+          image=$(sed -nE 's/^\s+image:\s+(nginx:\S+)$/\1/p' docker-compose.yml)
+          docker run --rm -v "$PWD/nginx:/etc/nginx/conf.d:ro" "$image" nginx -t
+      - name: A change under nginx/ raises the revision
+        # CI reads the revision back after deploying.
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -n "$base" ] && ! [[ "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            node scripts/check-nginx-revision.mjs "$base..${{ github.sha }}"
+          fi
 
   deploy:
     name: Deploy
     needs: checks
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment:
       name: production
       url: https://webauth.courses

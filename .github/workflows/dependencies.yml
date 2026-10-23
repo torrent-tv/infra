@@ -24,7 +24,7 @@ permissions:
 jobs:
   update:
     name: Update
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,7 +57,7 @@ jobs:
 
   disk:
     name: Disk space
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
