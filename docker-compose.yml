@@ -77,6 +77,13 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    # A new image recreates nginx, and the site does not answer until the new
+    # container listens: only one container can publish port 80. On SIGQUIT nginx
+    # stops accepting at once but waits for the proxies' tunnels (WebSockets, read
+    # timeout 3600 s), so Docker's default 10 s passed before the new one started:
+    # 11.4 s and 12.0 s of 521 (torrent-tv/meta#236). Now requests under way get
+    # 1 s to end; then the tunnels are cut and the proxies reconnect.
+    stop_grace_period: 1s
     # The same as the server's: the journal, a file per source, TTV_LOG_DRIVER.
     logging:
       driver: ${TTV_LOG_DRIVER:-journald}
