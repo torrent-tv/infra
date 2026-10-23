@@ -10,14 +10,15 @@
 #   docker compose -p doco-cd -f /websites/infra/host/doco-cd/docker-compose.yml up -d
 #   curl -fsS http://127.0.0.1:8090/v1/health
 #
-# The daily job of this repository opens an issue in torrent-tv/meta when a new
-# doco-cd release appears; the digest below is changed by hand.
+# The daily job of this repository (scripts/update-digests.mjs) fails while a newer
+# doco-cd release exists than the one pinned below; the tag and digest are changed
+# by hand.
 
 name: doco-cd
 
 services:
   doco-cd:
-    image: ghcr.io/kimdre/doco-cd:0.125.1@sha256:38198abbda1b55da7a7f37a7924b2ccdcc0583bd24466b7c2103ef6cd2ffc828
+    image: ghcr.io/kimdre/doco-cd:0.129.1@sha256:9c6e7f0040056465cdbc762b608c8893c64e691d464e34928c14338a6eaf6b8f
     restart: unless-stopped
     environment:
       TZ: Etc/UTC
