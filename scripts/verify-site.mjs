@@ -25,7 +25,11 @@
 // how often each of those proxies was missing. The server runs in two slots and
 // hands over at a release (torrent-tv/meta#94), so a failed answer or an empty
 // list fails the deployment. A server that ran alone before the deployment
-// cannot hand over, and then the result is only stated.
+// cannot hand over, and then the result is only stated. A deployment that
+// recreates nginx (NGINX_RECREATED=true, from nginx-recreated.mjs) leaves the
+// site without an answer until the new container listens, and the proxies
+// reconnect after it (torrent-tv/meta#236): then the result is a warning, and
+// fails only when the problems span more than NGINX_GAP_MS.
 //
 // `check` reads the expected server version from docker-compose.yml and the expected
 // nginx revision from nginx/revision.common, and verifies on the live sites:
@@ -208,7 +212,13 @@ async function check(before) {
   console.log(table);
 }
 
+// The longest span, from the first problem to the last, that a deployment
+// recreating nginx may show: about 2.5 s without an answer plus the proxies'
+// 5 s reconnect delay, with room for a slow start.
+const NGINX_GAP_MS = 20_000;
+
 async function watch(before) {
+  const nginxRecreated = process.env.NGINX_RECREATED === "true";
   let strict = false;
   try {
     const { instance } = await (await get(`${SITE}/healthz`)).json();
@@ -219,7 +229,7 @@ async function watch(before) {
   let stopping = false;
   process.on("SIGTERM", () => { stopping = true; });
   const started = Date.now();
-  const samples = { total: 0, failed: 0, empty: 0, firstProblem: null };
+  const samples = { total: 0, failed: 0, empty: 0, firstProblem: null, firstAt: null, lastAt: null };
   const missing = new Map(before.map((id) => [id, 0]));
   while (!stopping) {
     samples.total += 1;
@@ -228,11 +238,15 @@ async function watch(before) {
       if (now.size === 0 && before.length > 0) {
         samples.empty += 1;
         samples.firstProblem ??= `${((Date.now() - started) / 1000).toFixed(1)} s: empty list`;
+        samples.firstAt ??= Date.now();
+        samples.lastAt = Date.now();
       }
       for (const id of before) if (!now.has(id)) missing.set(id, missing.get(id) + 1);
     } catch (error) {
       samples.failed += 1;
       samples.firstProblem ??= `${((Date.now() - started) / 1000).toFixed(1)} s: ${error.message}`;
+      samples.firstAt ??= Date.now();
+      samples.lastAt = Date.now();
     }
   }
   const absent = [...missing].filter(([, count]) => count > 0).map(([id, count]) => `${id} missing from ${count}`);
@@ -240,12 +254,17 @@ async function watch(before) {
     `${samples.total} answers in ${((Date.now() - started) / 1000).toFixed(1)} s: ${samples.failed} failed, ${samples.empty} empty`,
     absent.length ? `proxies missing at times: ${absent.join(", ")}` : "every proxy connected before was listed every time",
     samples.firstProblem ? `first problem at ${samples.firstProblem}` : null,
-    strict ? null : "the server ran alone before the deployment, so this is not a failure"
+    samples.firstAt === null ? null : `problems over ${((samples.lastAt - samples.firstAt) / 1000).toFixed(1)} s`,
+    strict ? null : "the server ran alone before the deployment, so this is not a failure",
+    strict && nginxRecreated ? `the deployment recreated nginx, which the site cannot answer through; a failure only over ${NGINX_GAP_MS / 1000} s` : null
   ].filter(Boolean).join("; ");
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### What a connecting page found during the deployment\n\n${text}\n`);
-  if (strict && (samples.failed > 0 || samples.empty > 0)) {
+  const problems = samples.failed > 0 || samples.empty > 0;
+  if (strict && problems && !(nginxRecreated && samples.lastAt - samples.firstAt <= NGINX_GAP_MS)) {
     console.log(`::error::during the deployment: ${text}`);
     process.exitCode = 1;
+  } else if (strict && problems) {
+    console.log(`::warning::during the deployment: ${text}`);
   } else {
     console.log(`during the deployment: ${text}`);
   }

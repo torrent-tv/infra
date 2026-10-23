@@ -134,15 +134,26 @@ jobs:
           done | ssh -i "$RUNNER_TEMP/deploy_key" -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "root@$SSH_HOST" ttv-apply-secrets
           rm -f "$RUNNER_TEMP/deploy_key"
 
+      # Before production moves: a changed nginx service recreates nginx, which
+      # the site cannot answer through (torrent-tv/meta#236).
+      - name: Does the deployment recreate nginx
+        id: nginx
+        if: steps.configured.outputs.on == 'true'
+        run: |
+          git fetch -q origin +refs/heads/production:refs/remotes/origin/production
+          node scripts/nginx-recreated.mjs refs/remotes/origin/production "$GITHUB_SHA"
+
       - name: Move production and apply
         id: deploy
         if: steps.configured.outputs.on == 'true'
         env:
           WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
           API_SECRET: ${{ secrets.DEPLOY_API_SECRET }}
+          NGINX_RECREATED: ${{ steps.nginx.outputs.recreated }}
         # While the deployment is applied, the watcher asks for the list of
         # proxies as a connecting page would; with two server slots a failed
-        # answer or an empty list fails the job (verify-site.mjs, torrent-tv/meta#94).
+        # answer or an empty list fails the job (verify-site.mjs, torrent-tv/meta#94),
+        # unless the deployment recreates nginx and the problems end within 20 s.
         # doco-cd reports done once the new slot runs, but the server's handover
         # ends later — after 610 s once (torrent-tv/meta#140) — so the watcher
         # also covers the wait for that handover to end.
