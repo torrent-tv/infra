@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-old_image='nginx:alpine@sha256:060849a174666c53439dc7cecbf8f67e225c7cbfb1a44ca97915d9a172a81e6d'
+# This pinned image predates the current executable and exercises a real binary change.
+old_image='nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2'
 new_image=${NGINX_UPGRADE_IMAGE:?set NGINX_UPGRADE_IMAGE to the pinned nginx-upgrade image}
 container="nginx-upgrade-check-${GITHUB_RUN_ID:-$$}"
 directory=$(mktemp -d)
@@ -32,7 +33,7 @@ new_number=$(printf '%s\n' "$new_version" | sed -nE 's/.*nginx\/([0-9.]+).*/\1/p
 old_hash=$(docker run --rm --entrypoint /bin/sh "$old_image" -c 'sha256sum /usr/sbin/nginx' | awk '{ print $1 }')
 new_hash=$(docker run --rm --entrypoint /bin/sh "$new_image" -c 'sha256sum /usr/sbin/nginx' | awk '{ print $1 }')
 if [ -z "$old_number" ] || [ -z "$new_number" ] || [ "$old_hash" = "$new_hash" ]; then
-  echo "the pinned test images must contain different nginx executables" >&2
+  echo "test images must contain different nginx executables (old=$old_version $old_hash; new=$new_version $new_hash)" >&2
   exit 1
 fi
 
