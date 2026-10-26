@@ -72,6 +72,8 @@ while kill -0 "$upgrade_pid" 2>/dev/null; do
 done
 if ! wait "$upgrade_pid"; then
   cat "$directory/upgrade.log" >&2
+  docker logs "$container" >&2 || true
+  docker exec "$container" /bin/sh -c 'ls -l /var/run/nginx.pid* 2>&1; ps' >&2 || true
   exit 1
 fi
 upgrade_pid=
