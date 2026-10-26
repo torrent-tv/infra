@@ -159,13 +159,15 @@ not follow moves: it is reconnected when the old instance closes its tunnel, and
 is missing from the list for its 5 s reconnect delay. `GET /healthz` names the
 slot and its state (`serving`, `standby`, …). During every deployment CI asks
 for the list of proxies as a connecting page would (`verify-site.mjs watch`); a
-failed answer or an empty list fails the job. The one exception is a deployment
-that changes the `nginx` service in `docker-compose.yml` (a new image digest,
-mostly): it recreates nginx, and the site cannot answer until the new container
-listens (up to 1 s for the old one to stop, `stop_grace_period`, and 1.4 s
-measured for the new one to start), and the proxies reconnect after that
-(torrent-tv/meta#236). For such a deployment the job states what the watcher
-found as a warning, and fails only when the problems last longer than 20 s.
+failed answer or an empty list fails the job. The nginx image digest is applied
+by the one-shot `nginx-upgrade` service: it replaces the executable in the
+running nginx container using nginx's live binary upgrade, while that
+container keeps the port 80 listener. The first deployment installs the
+supervisor by recreating nginx once; it uses the established 1 s stop window.
+The daily digest updater changes the helper's image and leaves the running
+nginx image pinned. The deployment watcher fails on HTTP errors and on proxy
+lists that remain empty beyond the measured reconnect window during an image
+upgrade (torrent-tv/meta#236).
 
 doco-cd reports a deployment done as soon as the new slot's container runs; the
 handover ends later, when the last proxy that follows moves has reached the new
