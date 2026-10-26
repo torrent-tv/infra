@@ -24,13 +24,12 @@
 // failed, lists that were empty while proxies had been connected before, and
 // how often each of those proxies was missing. The server runs in two slots and
 // hands over at a release (torrent-tv/meta#94), so failed answers fail the
-// deployment. An empty list fails unless the changed nginx image is being
-// applied and its reconnect gap stays within the measured allowance. A server
-// that ran alone before the deployment
-// cannot hand over, and then the result is only stated. During an nginx binary
-// upgrade, old proxy WebSockets reconnect after the old workers drain; only an
-// empty proxy list may use the measured reconnect allowance. HTTP failures stay
-// fatal because nginx is expected to keep its listener open.
+// deployment except during the one-time nginx bootstrap. An empty list fails
+// unless nginx is being bootstrapped or its helper image is changing and the
+// observed gap stays within the measured allowance. A server that ran alone before the deployment cannot hand over,
+// and then the result is only stated. During an nginx binary upgrade, old proxy
+// WebSockets reconnect after the old workers drain; only this proxy-list gap
+// may use the allowance. HTTP failures during routine upgrades stay fatal.
 //
 // `check` reads the expected server version from docker-compose.yml and the expected
 // nginx revision from nginx/revision.common, and verifies on the live sites:
@@ -215,6 +214,7 @@ async function check(before) {
 }
 
 async function watch(before) {
+  const nginxBootstrap = process.env.NGINX_BOOTSTRAP === "true";
   const nginxUpgrade = process.env.NGINX_LIVE_UPGRADE === "true";
   let strict = false;
   try {
@@ -249,18 +249,21 @@ async function watch(before) {
     }
   }
   const absent = [...missing].filter(([, count]) => count > 0).map(([id, count]) => `${id} missing from ${count}`);
+  const problems = samples.failed > 0 || samples.empty > 0;
   const text = [
     `${samples.total} answers in ${((Date.now() - started) / 1000).toFixed(1)} s: ${samples.failed} failed, ${samples.empty} empty`,
     absent.length ? `proxies missing at times: ${absent.join(", ")}` : "every proxy connected before was listed every time",
     samples.firstProblem ? `first problem at ${samples.firstProblem}` : null,
     samples.firstAt === null ? null : `problems over ${((samples.lastAt - samples.firstAt) / 1000).toFixed(1)} s`,
     strict ? null : "the server ran alone before the deployment, so this is not a failure",
-    strict && nginxUpgrade && samples.empty > 0 ? `nginx upgrade allows at most ${NGINX_RECONNECT_MS / 1000} s for proxy reconnection` : null
+    strict && nginxBootstrap && problems ? `initial nginx setup allows at most ${NGINX_RECONNECT_MS / 1000} s for the container restart and proxy reconnection` : null,
+    strict && !nginxBootstrap && nginxUpgrade && samples.empty > 0 ? `nginx upgrade allows at most ${NGINX_RECONNECT_MS / 1000} s for proxy reconnection` : null
   ].filter(Boolean).join("; ");
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### What a connecting page found during the deployment\n\n${text}\n`);
-  const problems = samples.failed > 0 || samples.empty > 0;
+  const problemSpan = samples.firstAt === null ? 0 : samples.lastAt - samples.firstAt;
+  const bootstrapWithinAllowance = nginxBootstrap && problems && problemSpan <= NGINX_RECONNECT_MS;
   const reconnectWithinAllowance = nginxUpgrade && samples.firstEmptyAt !== null && samples.lastEmptyAt - samples.firstEmptyAt <= NGINX_RECONNECT_MS;
-  if (strict && (samples.failed > 0 || (samples.empty > 0 && !reconnectWithinAllowance))) {
+  if (strict && !bootstrapWithinAllowance && (samples.failed > 0 || (samples.empty > 0 && !reconnectWithinAllowance))) {
     console.log(`::error::during the deployment: ${text}`);
     process.exitCode = 1;
   } else if (strict && problems) {
