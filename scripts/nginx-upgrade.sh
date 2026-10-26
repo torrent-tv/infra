@@ -126,8 +126,6 @@ while IFS= read -r relative; do
   chmod 755 "$target_root$library.nginx-new"
   chroot "$target_root" /bin/mv "$library.nginx-new" "$library"
 done < "$work/libraries"
-cp "$work/nginx.new" "$target_root/run/nginx-upgrade/nginx.new"
-chmod 755 "$target_root/run/nginx-upgrade/nginx.new"
 
 if ! chroot "$target_root" /run/nginx-upgrade/nginx.new -t -g 'worker_shutdown_timeout 30s;'; then
   echo "new nginx executable failed configuration or library validation; restoring the previous executable" >&2
