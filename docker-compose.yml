@@ -75,14 +75,12 @@ services:
   nginx:
     image: nginx:alpine@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "/scripts/nginx-supervisor.sh"]
+    command: []
     ports:
       - "80:80"
-    # A new image recreates nginx, and the site does not answer until the new
-    # container listens: only one container can publish port 80. On SIGQUIT nginx
-    # stops accepting at once but waits for the proxies' tunnels (WebSockets, read
-    # timeout 3600 s), so Docker's default 10 s passed before the new one started:
-    # 11.4 s and 12.0 s of 521 (torrent-tv/meta#236). Now requests under way get
-    # 1 s to end; then the tunnels are cut and the proxies reconnect.
+    # The first deployment installs the supervisor by recreating this container.
+    # Keep the established short stop window for that one-time transition.
     stop_grace_period: 1s
     # The same as the server's: the journal, a file per source, TTV_LOG_DRIVER.
     logging:
@@ -91,7 +89,13 @@ services:
         tag: torrent-tv-nginx
     volumes:
       - ./nginx:/etc/nginx/conf.d:ro
+      - ./scripts/nginx-supervisor.sh:/scripts/nginx-supervisor.sh:ro
       - torrent-tv-server-static:/var/www/static/torrent-tv/server:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/_infra/revision >/dev/null"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
     labels:
       # A change of the configuration is not a reason to recreate nginx: doco-cd
       # updates the files in place and sends SIGHUP, and nginx reloads. The master
@@ -103,3 +107,22 @@ services:
     depends_on:
       - server-a
       - server-b
+
+  # Keep the running nginx container and its published port in place. The daily
+  # digest updater changes this helper's image; it installs the matching nginx
+  # executable and asks the live master to perform nginx's USR2/WINCH upgrade.
+  nginx-upgrade:
+    image: nginx:alpine@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417
+    entrypoint: ["/bin/sh", "/scripts/nginx-upgrade.sh"]
+    command: []
+    pid: service:nginx
+    network_mode: service:nginx
+    restart: "no"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d:ro
+      - ./scripts/nginx-upgrade.sh:/scripts/nginx-upgrade.sh:ro
+    depends_on:
+      nginx:
+        condition: service_healthy
+    labels:
+      cd.doco.deployment.one_shot: "true"

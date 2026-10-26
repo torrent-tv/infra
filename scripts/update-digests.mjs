@@ -3,9 +3,11 @@
 //   node scripts/update-digests.mjs
 //
 // docker-compose.yml pins every image as `<repository>:<tag>@<digest>`. For each one
-// except the server (which only a server release moves), this reads the digest the
-// tag points to now and writes it in place: `nginx:alpine` follows nginx's main line
-// this way, as watchtower used to. Writes `changed=<images>` to GITHUB_OUTPUT.
+// except the server (which only a server release moves) and the nginx service
+// (whose image stays fixed after bootstrap), this reads the digest the tag points
+// to now and writes it in place. The `nginx-upgrade` service follows nginx's main
+// line and updates the executable in the running nginx container. Writes
+// `changed=<images>` to GITHUB_OUTPUT.
 //
 // doco-cd is not changed here — it is updated by hand (host/doco-cd/docker-compose.yml).
 // When its project has a newer release than the pinned one, this prints an error and
@@ -16,17 +18,24 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const COMPOSE = "docker-compose.yml";
 const DOCO = "host/doco-cd/docker-compose.yml";
 const PIN = /^(\s+image:\s+)([^\s@:]+(?:\/[^\s@:]+)*):([^\s@]+)@(sha256:[0-9a-f]{64})\s*$/;
+const SERVICE = /^  ([a-z0-9-]+):\s*$/;
 
 const digestOf = (reference) =>
   JSON.parse(execFileSync("docker", ["buildx", "imagetools", "inspect", reference, "--format", "{{json .Manifest.Digest}}"], { encoding: "utf8" }));
 
 const lines = readFileSync(COMPOSE, "utf8").split("\n");
 const changed = [];
+let service = "";
 for (let i = 0; i < lines.length; i += 1) {
+  service = SERVICE.exec(lines[i])?.[1] ?? service;
   const match = PIN.exec(lines[i]);
   if (!match) continue;
   const [, indent, repository, tag, digest] = match;
   if (repository === "ghcr.io/torrent-tv/server") continue;
+  if (service === "nginx") {
+    console.log(`${repository}:${tag} stays pinned; its executable is updated by nginx-upgrade`);
+    continue;
+  }
   const current = digestOf(`${repository}:${tag}`);
   if (current !== digest) {
     lines[i] = `${indent}${repository}:${tag}@${current}`;
