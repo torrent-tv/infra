@@ -64,7 +64,10 @@ docker run --rm --pid="container:$container" --network="container:$container" \
   --entrypoint /bin/sh "$new_image" /scripts/nginx-upgrade.sh >"$directory/upgrade.log" 2>&1 &
 upgrade_pid=$!
 failures=0
+requests=0
+started_ms=$(date +%s%3N)
 while kill -0 "$upgrade_pid" 2>/dev/null; do
+  requests=$((requests + 1))
   if ! curl --fail --silent --max-time 1 "$url/version" >/dev/null; then
     failures=$((failures + 1))
   fi
@@ -82,6 +85,8 @@ if [ "$failures" -ne 0 ]; then
   echo "the site failed to answer during nginx's live upgrade ($failures failed requests)" >&2
   exit 1
 fi
+duration_ms=$(( $(date +%s%3N) - started_ms ))
+echo "live upgrade ${old_number} -> ${new_number}: $requests HTTP requests in ${duration_ms} ms, $failures failed"
 served_version=$(curl --fail --silent "$url/version")
 if [ "$served_version" != "$new_number" ]; then
   echo "new nginx did not take over the listener: $served_version" >&2
