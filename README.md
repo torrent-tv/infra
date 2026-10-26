@@ -165,9 +165,10 @@ running nginx container using nginx's live binary upgrade, while that
 container keeps the port 80 listener. The first deployment installs the
 supervisor by recreating nginx once; it uses the established 1 s stop window.
 The daily digest updater changes the helper's image and leaves the running
-nginx image pinned. The deployment watcher fails on HTTP errors and on proxy
-lists that remain empty beyond the measured reconnect window during an image
-upgrade (torrent-tv/meta#236).
+nginx image pinned. The first setup permits at most 20 seconds for the one-time
+container restart. After setup, the deployment watcher fails on HTTP errors
+and on proxy lists that remain empty beyond the measured reconnect window
+during an image upgrade (torrent-tv/meta#236).
 
 doco-cd reports a deployment done as soon as the new slot's container runs; the
 handover ends later, when the last proxy that follows moves has reached the new

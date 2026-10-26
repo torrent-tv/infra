@@ -138,7 +138,7 @@ jobs:
           done | ssh -i "$RUNNER_TEMP/deploy_key" -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "root@$SSH_HOST" ttv-apply-secrets
           rm -f "$RUNNER_TEMP/deploy_key"
 
-      - name: Does the deployment upgrade nginx
+      - name: Does the deployment change nginx
         id: nginx
         if: steps.configured.outputs.on == 'true'
         run: |
@@ -151,6 +151,7 @@ jobs:
         env:
           WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
           API_SECRET: ${{ secrets.DEPLOY_API_SECRET }}
+          NGINX_BOOTSTRAP: ${{ steps.nginx.outputs.bootstrap }}
           NGINX_LIVE_UPGRADE: ${{ steps.nginx.outputs.upgrade }}
         # While the deployment is applied, the watcher asks for the list of
         # proxies as a connecting page would; with two server slots a failed
