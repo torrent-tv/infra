@@ -53,8 +53,12 @@ jobs:
       - name: nginx accepts the configuration
         # Checked by the nginx image that will run it.
         run: |
-          image=$(sed -nE 's/^\s+image:\s+(nginx:\S+)$/\1/p' docker-compose.yml)
+          image=$(sed -nE '/^  nginx:/,/^  [^ ]/s/^    image: (.*)$/\1/p' docker-compose.yml)
           docker run --rm -v "$PWD/nginx:/etc/nginx/conf.d:ro" "$image" nginx -t
+      - name: nginx updates its executable without losing the listener
+        run: |
+          image=$(sed -nE '/^  nginx-upgrade:/,/^  [^ ]/s/^    image: (.*)$/\1/p' docker-compose.yml)
+          NGINX_UPGRADE_IMAGE="$image" bash scripts/check-nginx-live-upgrade.sh
       - name: A change under nginx/ raises the revision
         # CI reads the revision back after deploying.
         run: |
@@ -134,14 +138,12 @@ jobs:
           done | ssh -i "$RUNNER_TEMP/deploy_key" -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "root@$SSH_HOST" ttv-apply-secrets
           rm -f "$RUNNER_TEMP/deploy_key"
 
-      # Before production moves: a changed nginx service recreates nginx, which
-      # the site cannot answer through (torrent-tv/meta#236).
-      - name: Does the deployment recreate nginx
+      - name: Does the deployment upgrade nginx
         id: nginx
         if: steps.configured.outputs.on == 'true'
         run: |
           git fetch -q origin +refs/heads/production:refs/remotes/origin/production
-          node scripts/nginx-recreated.mjs refs/remotes/origin/production "$GITHUB_SHA"
+          node scripts/nginx-upgrade-required.mjs refs/remotes/origin/production "$GITHUB_SHA"
 
       - name: Move production and apply
         id: deploy
@@ -149,11 +151,10 @@ jobs:
         env:
           WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
           API_SECRET: ${{ secrets.DEPLOY_API_SECRET }}
-          NGINX_RECREATED: ${{ steps.nginx.outputs.recreated }}
+          NGINX_LIVE_UPGRADE: ${{ steps.nginx.outputs.upgrade }}
         # While the deployment is applied, the watcher asks for the list of
         # proxies as a connecting page would; with two server slots a failed
-        # answer or an empty list fails the job (verify-site.mjs, torrent-tv/meta#94),
-        # unless the deployment recreates nginx and the problems end within 20 s.
+        # answer or an empty list fails the job (verify-site.mjs, torrent-tv/meta#94).
         # doco-cd reports done once the new slot runs, but the server's handover
         # ends later — after 610 s once (torrent-tv/meta#140) — so the watcher
         # also covers the wait for that handover to end.
