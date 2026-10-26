@@ -18,7 +18,7 @@ trap stop_nginx QUIT TERM INT
 
 # nginx runs as a child so this shell remains PID 1 when nginx replaces its
 # master. It also reaps the old master after nginx's live upgrade completes.
-nginx -g 'daemon on; worker_shutdown_timeout 30s;'
+/usr/sbin/nginx -g 'daemon on; worker_shutdown_timeout 30s;'
 
 while [ "$stopping" = false ]; do
   if [ ! -r "$pid_file" ]; then
