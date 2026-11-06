@@ -112,7 +112,7 @@ services:
   # digest updater changes this helper's image; it installs the matching nginx
   # executable and asks the live master to perform nginx's USR2/WINCH upgrade.
   nginx-upgrade:
-    image: nginx:alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
+    image: nginx:alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
     entrypoint: ["/bin/sh", "/scripts/nginx-upgrade.sh"]
     command: []
     pid: service:nginx
