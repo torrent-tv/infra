@@ -1,6 +1,9 @@
 # infra — hosting & infrastructure notes
 
-nginx + docker-compose for the `webauth.courses` server. See the parent `../AGENTS.md` for the overall architecture.
+nginx + docker-compose for the `webauth.courses` server. See the parent
+`../AGENTS.md` for the overall architecture and
+[`torrent-tv/.github/CONTRIBUTING.md`](https://github.com/torrent-tv/.github/blob/main/CONTRIBUTING.md)
+for shared commit and release rules.
 
 ## Current Droplet (as of June 2026)
 
@@ -122,12 +125,7 @@ If the server role expands to **relay** or **HLS delivery**, the Droplet plan an
 - Cloudflare caches static assets (JS/CSS/HTML) — good for frontend delivery.
 - Cloudflare **does not** and **must not** proxy video streaming traffic (ToS + practical limits).
 
-## Commits and deploy
-
-Every commit header follows Conventional Commits (`<type>(<scope>)!: <subject>`,
-types `feat fix perf refactor docs test build ci chore style revert`); CI refuses
-a pushed commit that does not. Enable the local check once per clone:
-`git config core.hooksPath .githooks`. Rules: `torrent-tv/.github` CONTRIBUTING.md.
+## Repository deploy path
 
 A push to `main` runs `.github/workflows/main.yml`: commit headers, line endings,
 every image pinned by digest, `docker compose config`, `nginx -t` in the pinned
