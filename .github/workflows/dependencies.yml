@@ -37,23 +37,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/update-digests.mjs
+      - name: Stage the digest change
+        if: always() && steps.digests.outputs.changed != ''
+        run: git add -u
       - name: Commit and deploy
         if: always() && steps.digests.outputs.changed != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHANGED: ${{ steps.digests.outputs.changed }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qam "fix(deps): update the digest of $CHANGED #ttv-93"
-          for _ in 1 2 3; do
-            if git push origin HEAD:refs/heads/main; then
-              gh workflow run main.yml --ref main
-              exit 0
-            fi
-            git pull --rebase origin main
-          done
-          exit 1
+        uses: torrent-tv/.github/actions/push-to-main@main
+        with:
+          message: "fix(deps): update the digest of ${{ steps.digests.outputs.changed }}"
+          workflow: main.yml
+          github-token: ${{ github.token }}
 
   disk:
     name: Disk space
