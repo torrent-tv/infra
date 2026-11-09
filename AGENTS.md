@@ -32,18 +32,16 @@ Encrypt limits that bound it) and the cost of relaying through a droplet:
   the same commit; CI refuses it otherwise, and the deployment checks that
   `/_infra/revision` serves the new number (an invalid configuration is kept
   out by nginx itself, so that check is what catches it).
-- **Secrets live only as GitHub secrets** of this repository's `production`
-  environment; nothing is put on the host by hand. Adding or rotating one:
-  README, "Secrets".
 
 ## Deploy path
 
 Merging to `main` runs `.github/workflows/main.yml`: commit headers, branch
 name, line endings, image digests, `docker compose config`, `nginx -t` in the
-pinned nginx image, nginx's live executable upgrade, and the nginx revision. The serial `deploy` job then moves
-`production` to the checked commit (never backwards, never forced), asks doco-cd
-to apply it through a signed webhook, follows the run and the server handover,
-and checks the site and the page from outside. CI has no login to the host.
+pinned nginx image, nginx's live executable upgrade, and the nginx revision.
+The serial `deploy` job then moves `production` to the checked commit (never
+backwards, never forced), asks doco-cd to apply it through a signed webhook,
+follows the run and the server handover, and checks the site and the page from
+outside. CI has no login to the host.
 `host/doco-cd/` and `host/logs/` are installed on the host by hand; `prod.sh` is
 only for when doco-cd itself is down.
 
@@ -52,8 +50,7 @@ only for when doco-cd itself is down.
 Every container logs to the host journal (`journald` driver, tag
 `torrent-tv-<source>`); rsyslog writes `/var/log/torrent-tv/server.log`,
 `client.log` (browser lines forwarded to the server), `nginx.log` and
-`doco-cd.log`, which survive deployments. `docker logs` shows only the current
-container. Never leave `docker logs` running on the host: a forgotten one once
-held dockerd at nearly the whole CPU for weeks; bound it with `timeout`. Reading
-and retention: README, "Logs"; the browser's lines during a viewing are on the
-proxy (`../proxy/docs/logs.md`).
+`doco-cd.log`, which survive deployments. Reading them, retention and the
+limits of `docker logs`: [`README.md`, "Logs"](README.md#logs). The browser's
+lines during a viewing are on the proxy
+([`docs/logs.md`](https://github.com/torrent-tv/proxy/blob/main/docs/logs.md)).
