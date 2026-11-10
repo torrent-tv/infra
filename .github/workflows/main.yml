@@ -1,8 +1,16 @@
 name: Main
 
-# Every push to main is checked; a checked commit is then applied on the droplet
-# by doco-cd. CI never logs in to the host: it moves the `production` branch, which
-# doco-cd deploys, and verifies the live site from outside.
+# Every push to main is versioned first, then checked, released and applied on the
+# droplet by doco-cd.
+#  1. `version` finds the commits that still hold a changeset file and rewrites
+#     each one with its version and changelog entry, in place, then force-pushes
+#     main with a lease. The push starts the next run, which finds nothing to
+#     version (state=current) and does the rest.
+#  2. `checks` checks the commit, `publish` tags and releases every new version,
+#     `rebase-prs` rebases the open pull requests onto the rewritten main, and
+#     `deploy` moves the `production` branch, which doco-cd deploys, and verifies
+#     the live site from outside. CI never logs in to the host.
+# The rules are in openspec/changes/release-with-changesets/design.md.
 
 on:
   push:
@@ -15,8 +23,147 @@ permissions:
   contents: read
 
 jobs:
+  version:
+    name: Version
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    environment: production
+    # One rewrite at a time; a run waits for the one before it.
+    concurrency:
+      group: version
+      cancel-in-progress: false
+      queue: max
+    outputs:
+      state: ${{ steps.version.outputs.state }}
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - uses: actions/checkout@v7.0.1
+        with:
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - name: Version every commit that holds a changeset
+        id: version
+        run: |
+          set -euo pipefail
+          git config user.name 'torrent-tv-release[bot]'
+          git config user.email '337444158+torrent-tv-release[bot]@users.noreply.github.com'
+          state() { echo "state=$1" >> "$GITHUB_OUTPUT"; }
+          git fetch --quiet origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main moved to $(git rev-parse --short origin/main); its run versions it"
+            state moved
+            exit 0
+          fi
+          # A changeset file left in the tree marks a commit not yet versioned.
+          pending=$(git ls-files .changeset | grep -vxE '\.changeset/(README\.md|config\.json)' || true)
+          if [ -z "$pending" ]; then
+            echo "no pending changesets"
+            state current
+            exit 0
+          fi
+          # shellcheck disable=SC2086
+          first=$(git log --reverse --format=%H --diff-filter=A -- $pending | head -n 1)
+          if ! git rev-parse --verify --quiet "$first^" > /dev/null; then
+            echo "::error::$first is the first commit; it cannot be versioned"
+            exit 1
+          fi
+          if [ -n "$(git rev-list --merges "$first^..HEAD")" ]; then
+            echo "::error::the range $first^..HEAD holds a merge commit: $(git rev-list --merges "$first^..HEAD" | tr '\n' ' ')"
+            exit 1
+          fi
+          for c in $(git rev-list "$first^..HEAD"); do
+            if [ -n "$(git tag --points-at "$c" --list 'v*')" ]; then
+              echo "::error::commit $c carries a release tag and cannot be rewritten"
+              exit 1
+            fi
+          done
+          old_tip=$(git rev-parse HEAD)
+          # Replayed for every commit of the range; only a commit that added a changeset is amended.
+          amend="$RUNNER_TEMP/amend.sh"
+          cat > "$amend" <<'AMEND'
+          set -e
+          added=$(git diff-tree --no-commit-id --no-renames --name-only --diff-filter=A -r HEAD -- .changeset | grep -vxE "\.changeset/(README\.md|config\.json)" || true)
+          if [ -z "$added" ]; then exit 0; fi
+          git reset --soft HEAD~1
+          npx --no-install changeset version
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          other=$(git diff --name-only ORIG_HEAD | grep -vxE "package\.json|package-lock\.json|CHANGELOG\.md|\.changeset/.+\.md" || true)
+          if [ -n "$other" ]; then
+            echo "::error::the version step changed paths it may not change: $other"
+            exit 1
+          fi
+          git add -A
+          git commit --quiet --no-verify -C ORIG_HEAD
+          AMEND
+          # A later commit that edits a line next to "version" in package.json conflicts with the
+          # rewritten parent. The rewritten parent differs from the original one only in the
+          # version fields, so the commit's own text is taken and the parent's version is set back.
+          resolve_conflict() {
+            local unmerged other parent_version
+            unmerged=$(git diff --name-only --diff-filter=U)
+            if [ -z "$unmerged" ]; then
+              echo "::error::rebase stopped at a failed step after $(git rev-parse --short HEAD)"
+              return 1
+            fi
+            other=$(printf '%s\n' "$unmerged" | grep -vxE 'package\.json|package-lock\.json' || true)
+            if [ -n "$other" ]; then
+              echo "::error::rebase stopped at $(git rev-parse --short REBASE_HEAD) with a conflict in: $(printf '%s' "$unmerged" | tr '\n' ' ')"
+              return 1
+            fi
+            parent_version=$(git show HEAD:package.json | jq -r .version)
+            for f in $unmerged; do git checkout --theirs -- "$f"; done
+            npm pkg set "version=$parent_version" > /dev/null
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+            git add package.json package-lock.json
+            GIT_EDITOR=true git rebase --continue || true
+          }
+          if ! git rebase --exec "bash $amend" "$first^"; then
+            if [ ! -d "$(git rev-parse --git-path rebase-merge)" ]; then
+              echo "::error::git rebase did not start"
+              exit 1
+            fi
+            until [ ! -d "$(git rev-parse --git-path rebase-merge)" ]; do
+              if ! resolve_conflict; then
+                git rebase --abort
+                exit 1
+              fi
+            done
+          fi
+          new_tip=$(git rev-parse HEAD)
+          if git push --force-with-lease="refs/heads/main:$GITHUB_SHA" origin HEAD:refs/heads/main; then
+            versions=''
+            previous=$(git show "$first^:package.json" | jq -r .version)
+            for c in $(git rev-list --reverse "$first^..HEAD"); do
+              v=$(git show "$c:package.json" | jq -r .version)
+              if [ "$v" != "$previous" ]; then versions="$versions $v"; previous=$v; fi
+            done
+            echo "versioned $(git rev-list --count "$first^..HEAD") commits: ${old_tip:0:7}..${new_tip:0:7}, versions:${versions:- none}"
+            state rewritten
+          else
+            git fetch --quiet origin main
+            if [ "$(git rev-parse origin/main)" = "$GITHUB_SHA" ]; then
+              echo "::error::the push failed and main did not move"
+              exit 1
+            fi
+            echo "main moved during versioning; the run of the new tip versions it"
+            state moved
+          fi
+
   checks:
     name: Checks
+    needs: version
+    # A pull request has no version job. After a push, only the run that found
+    # nothing to version goes on; the others end in `version`.
+    if: ${{ !cancelled() && (needs.version.result == 'skipped' || needs.version.outputs.state == 'current') }}
     runs-on: ubuntu-26.04
     # The commit check lists a pull request's commits through the API.
     permissions:
@@ -29,10 +176,10 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # One step per check, so the run shows which check ran and which one failed.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
       - name: Commit messages follow Conventional Commits
@@ -66,6 +213,76 @@ jobs:
       - name: A change under nginx/ raises the revision
         run: bash scripts/check.sh revision "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
 
+  publish:
+    name: Publish
+    needs: checks
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    environment: production
+    # infra has no artifact: its private package is released by its tag and GitHub
+    # Release. One run publishes at a time, oldest version first.
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - name: Tag and release every version that has none
+        run: |
+          set -euo pipefail
+          git config user.name 'torrent-tv-release[bot]'
+          git config user.email '337444158+torrent-tv-release[bot]@users.noreply.github.com'
+          tip=$(git rev-parse HEAD)
+          git fetch --quiet --tags origin
+          # A version is a commit that added a "## <version>" heading to CHANGELOG.md; it is
+          # released when its tag and GitHub Release exist. The range starts at the newest
+          # tag's own commit, so a run that failed after the tag was pushed finishes that
+          # release; versions before it were released earlier.
+          last=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          range=(HEAD)
+          if [ -n "$last" ]; then range=("$last^..HEAD"); fi
+          commits=$(git log -G'^## [0-9]' --format=%H --reverse "${range[@]}" -- CHANGELOG.md)
+          if [ -z "$commits" ]; then
+            echo "no version after ${last:-the first commit}; nothing to release"
+            exit 0
+          fi
+          for c in $commits; do
+            v=$(git show "$c:package.json" | jq -r .version)
+            if git rev-parse --verify --quiet "refs/tags/v$v" > /dev/null; then
+              if [ "$(git rev-parse "refs/tags/v$v^{commit}")" != "$c" ]; then
+                echo "::error::tag v$v exists and does not point to ${c:0:7}, the commit that versioned it"
+                exit 1
+              fi
+              echo "tag v$v is on ${c:0:7} already"
+            else
+              git switch --quiet --detach "$c"
+              npx --no-install changeset git-tag
+              git switch --quiet --detach "$tip"
+            fi
+            # Pushed with GITHUB_TOKEN: a tag push starts no workflow run.
+            if ! git ls-remote --exit-code --tags origin "refs/tags/v$v" > /dev/null; then
+              git push origin "refs/tags/v$v"
+              echo "pushed tag v$v on ${c:0:7}"
+            fi
+            if gh release view "v$v" > /dev/null 2>&1; then
+              echo "GitHub Release v$v exists already"
+            else
+              git show "$c:CHANGELOG.md" | awk -v heading="## $v" '$0 == heading { keep = 1; next } /^## / { keep = 0 } keep' > "$RUNNER_TEMP/notes-$v.md"
+              gh release create "v$v" --verify-tag --title "v$v" --notes-file "$RUNNER_TEMP/notes-$v.md"
+              echo "created GitHub Release v$v"
+            fi
+          done
+
   deploy:
     name: Deploy
     needs: checks
@@ -96,11 +313,11 @@ jobs:
           fi
 
       - if: steps.configured.outputs.on == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - if: steps.configured.outputs.on == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
 
