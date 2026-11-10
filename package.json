@@ -1,6 +1,6 @@
 {
   "name": "torrent-tv-infra",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Version of torrent-tv/infra and the tools that release it; nothing here is published",
   "license": "UNLICENSED",
