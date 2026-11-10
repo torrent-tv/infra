@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.7
+
+### Patch Changes
+
+- - **Fix**: The daily dependencies workflow counts the images in the fallback commit header from the list itself, so a long list no longer reports one image fewer than it updates.
+
 ## 0.0.6
 
 ### Patch Changes
