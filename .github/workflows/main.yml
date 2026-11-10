@@ -570,6 +570,10 @@ jobs:
       - name: Page after the deployment
         if: steps.configured.outputs.on == 'true' && steps.deploy.outputs.outcome != 'stale'
         run: |
-          npm install --no-save --no-audit --no-fund playwright@1
-          npx playwright install --with-deps chromium
+          # This job runs no `npm ci`, so the exact version is named here (Security rule 6). 1.65.0 is
+          # the version the run of 2026-11-10 installed: its Chromium, revision 1254 (158.0.8127.18),
+          # is the one in browsers.json of playwright 1.65.0.
+          npm install --no-save --no-audit --no-fund playwright@1.65.0
+          npx --no-install playwright --version
+          npx --no-install playwright install --with-deps chromium
           node scripts/verify-page.mjs
