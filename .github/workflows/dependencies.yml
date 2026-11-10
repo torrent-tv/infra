@@ -183,7 +183,7 @@ jobs:
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           npm update --package-lock-only --ignore-scripts --no-audit --no-fund
           if git diff --quiet -- package.json package-lock.json; then
-            echo "no update"
+            echo "no updates"
             exit 0
           fi
           # The commit is `fix` when shipped content changed: a lock entry that is not a
@@ -249,7 +249,11 @@ jobs:
           for c in $(git rev-list --reverse "$BASE..HEAD"); do
             header=$(git log -1 --format=%s "$c")
             git switch --quiet --detach "$c"
-            npm ci --ignore-scripts --no-audit --no-fund
+            if ! npm ci --ignore-scripts --no-audit --no-fund; then
+              echo "npm ci failed on $header" >> "$RUNNER_TEMP/failed.txt"
+              echo "::error::npm ci failed on \"$header\"; it and the commits after it are not pushed"
+              break
+            fi
             if ! bash scripts/check.sh all; then
               echo "bash scripts/check.sh all failed on $header" >> "$RUNNER_TEMP/failed.txt"
               echo "::error::the checks failed on \"$header\"; it and the commits after it are not pushed"
