@@ -4,6 +4,7 @@
   "private": true,
   "description": "Version of torrent-tv/infra and the tools that release it; nothing here is published",
   "license": "UNLICENSED",
+  "packageManager": "npm@11.19.1",
   "devDependencies": {
     "@changesets/cli": "3.0.3",
     "npm-check-updates": "23.1.1",
