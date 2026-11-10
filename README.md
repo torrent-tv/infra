@@ -96,10 +96,12 @@ infra/
 ├── docker-compose.yml           # the production stack: server + nginx + shared volume
 ├── docker-compose.local.yml     # dev overlay: build server from ../server source
 ├── .doco-cd.yaml                # how doco-cd applies this repository (production branch)
+├── package.json                 # the version of this repository and the release tools
+├── .changeset/                  # pending changesets and the changesets configuration
 ├── host/doco-cd/                # doco-cd itself, applied by hand
 ├── host/logs/                   # rsyslog rule and rotation for the log files, installed by hand
 ├── prod.sh                      # apply by hand when doco-cd is not available
-├── scripts/                     # deploy, site and page checks, digest updates
+├── scripts/                     # deploy, site and page checks, compose and nginx checks, digest updates
 └── nginx/
     ├── webauth.courses.conf     # server block for the production domain
     ├── revision.common          # /_infra/revision: raised with every nginx change
@@ -114,18 +116,29 @@ compose file is applied from there); doco-cd keeps its data in
 
 ### How a change reaches the droplet
 
-1. A commit lands on `main` — by a person, or by a server release that writes the
-   new server version and digest into `docker-compose.yml`.
-2. CI checks it: commit headers, no secret in any commit, every image pinned
-   by digest, `docker compose config`, `nginx -t` in the pinned nginx image,
-   and that a change under `nginx/` raised the revision in
-   `nginx/revision.common`.
-3. The serial `deploy` job (one at a time, queued) moves `production` to the
+1. A commit lands on `main`: a pull request merged by rebase, the daily
+   `Dependencies` run (alerts, updates, digests), or a server release, whose
+   `install` job writes the new server version and digest into
+   `docker-compose.yml`. The last two push as the `torrent-tv-release` app, with no
+   pull request.
+2. The `version` job runs first. A commit that still holds a changeset file is
+   rewritten in place with its version and changelog entry (`package.json` starts
+   at 0.0.0), and `main` is force-pushed with a lease. That push starts the next
+   run, which finds nothing to version and goes on. See
+   [Versions and releases](#versions-and-releases).
+3. CI checks the commit: commit headers, branch name, workflows, exact
+   dependency versions, every image pinned by digest, `docker compose config`,
+   `nginx -t` in the pinned nginx image, nginx's live executable upgrade, and that
+   a change under `nginx/` raised the revision in `nginx/revision.common`
+   (`scripts/check.sh`). A pull request also has to add a changeset.
+4. The serial `deploy` job (one at a time, queued) moves `production` to the
    commit without force — a commit `production` already contains is skipped as
    superseded — and sends doco-cd a signed webhook for that commit through
    `https://webauth.courses/_deploy/`. doco-cd deploys the commit the webhook
-   names; its poll every five minutes deploys the head of `production`.
-4. CI follows the deployment run until doco-cd reports it, then checks the site
+   names; its poll every five minutes deploys the head of `production`. A commit
+   that still needed a version is never deployed, so `production` moves forward
+   only.
+5. CI follows the deployment run until doco-cd reports it, then checks the site
    from outside: static files, `/env.js` reports the pinned server version,
    `/_infra/revision` equals the committed revision (nginx accepted the new
    configuration on SIGHUP), the signalling WebSocket opens, every proxy connected
@@ -133,15 +146,36 @@ compose file is applied from there); doco-cd keeps its data in
    [Disk space](#disk-space)); and a headless browser checks the page lists proxies
    and shows the file picker. No torrent is involved.
 
+### Versions and releases
+
+infra's `package.json` holds the version of this repository (private, never
+published) and the tools that release it. Each pull request adds a changeset
+(`npx changeset`); each commit that adds one gets its own version, amended into it
+on `main` after the merge by the `version` job. `publish` then tags `v<version>`
+(`changeset git-tag`) and creates the GitHub Release from the changelog section.
+After a rewrite, `rebase-prs` rebases every open pull request onto `main`. The
+rules, the states of a commit and the blockers:
+[`openspec/changes/release-with-changesets/design.md`](openspec/changes/release-with-changesets/design.md).
+
+### Dependencies
+
+`.github/workflows/dependencies.yml` runs daily and does the following, with no
+pull request. It raises each open Dependabot alert to its first patched version,
+applies patch and minor updates of the npm tools, moves each pinned image to the
+digest its tag points to now, runs `scripts/check.sh all` on every commit it
+prepares, and pushes the commits that passed. An alert that cannot be fixed, and
+a doco-cd release newer than the pinned one, keep the run red; an alert that does
+not apply is dismissed in Dependabot with a reason.
+
 ### Two server slots
 
 The proxy registry and the browsers' signalling sockets live in the memory of
 one server process, so only one server serves at a time. It runs in two slots,
 `server-a` and `server-b` (torrent-tv/meta#94):
 
-1. A server release writes its image into the slot that names the older
-   version, which is not serving (`torrent-tv/workflows`
-   `scripts/server-image.mjs`). doco-cd recreates only that slot.
+1. A server release writes its image into the slot that is not serving, or, when
+   no slot is known to serve, into the one that names the older version (the
+   `install` job of the server's `main.yml`). doco-cd recreates only that slot.
 2. The new instance asks the serving one, over `/internal/hand-over` on the
    Docker network, to hand over. The serving one stops accepting proxy tunnels
    and asks every proxy that follows moves (proxy 2.91.0 and later) to open a
@@ -381,9 +415,9 @@ proxy_next_upstream error timeout http_502 http_503 non_idempotent;
 | Step | Where | Trigger |
 |------|-------|---------|
 | Build and push the server image | GitHub Actions (`server` repo) | a release on `main` |
-| Write the server version and digest here | the server release, with the `torrent-tv-release` app | the same release |
-| Check, move `production`, apply, verify | GitHub Actions (this repo) + doco-cd | push to `main` |
-| Update pinned digests | GitHub Actions (this repo, daily) | schedule |
+| Write the server version and digest here | the `install` job of the server release, with the `torrent-tv-release` app | the same release |
+| Version, check, release, move `production`, apply, verify | GitHub Actions (this repo) + doco-cd | push to `main` |
+| Update dependencies, alerts and pinned digests | GitHub Actions (this repo, daily) | schedule |
 
 ## Volumes
 
