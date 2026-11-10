@@ -35,19 +35,21 @@ Encrypt limits that bound it) and the cost of relaying through a droplet:
 
 ## Deploy path
 
-Merging to `main` runs `.github/workflows/main.yml`. Its first job, `version`,
-rewrites each commit that holds a changeset with its version (the release App
-force-pushes `main`; the next run versions nothing). Then come the checks:
-commit headers, branch name, workflows, exact dependency versions, image
-digests, `docker compose config`, `nginx -t` in the pinned nginx image, nginx's
-live executable upgrade, and the nginx revision (`scripts/check.sh`); `publish`
-tags and releases each version. Every pull request adds a changeset.
-The shared commit, branch, changelog and release rules are in
-[`CONTRIBUTING.md`](https://github.com/torrent-tv/workflows/blob/main/CONTRIBUTING.md).
+Merging to `main` runs `.github/workflows/main.yml`. Changesets, versions and
+the release are shared by every repository and are written once, in the
+organization's
+[`CONTRIBUTING.md`](https://github.com/torrent-tv/workflows/blob/main/CONTRIBUTING.md#versions-and-releases)
+("Versions and releases", "How a release reaches its users", "Dependencies");
+the changeset front matter names `"torrent-tv-infra"`. After `version`, the
+checks are: commit headers, branch name, workflows, exact dependency versions,
+image digests, `docker compose config`, `nginx -t` in the pinned nginx image,
+nginx's live executable upgrade, and the nginx revision (`scripts/check.sh`);
+`publish` tags and releases each version.
 The serial `deploy` job then moves `production` to the checked commit (never
 backwards, never forced), asks doco-cd to apply it through a signed webhook,
 follows the run and the server handover, and checks the site and the page from
-outside. CI has no login to the host.
+outside. CI has no login to the host except the one restricted command in the
+`deploy` job's step "Deliver the secrets" (`README.md`, "Secrets").
 `host/doco-cd/` and `host/logs/` are installed on the host by hand; `prod.sh` is
 only for when doco-cd itself is down.
 

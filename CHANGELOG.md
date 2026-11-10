@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.8
+
+### Patch Changes
+
+- Project rules about releases, versions and dependencies are now written once in the shared contributing guide and linked from this repository's agent rules.
+
 ## 0.0.7
 
 ### Patch Changes
