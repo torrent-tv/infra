@@ -158,13 +158,46 @@ jobs:
             state moved
           fi
 
+  plan:
+    name: Plan checks
+    runs-on: ubuntu-26.04
+    # Every commit that adds a changeset becomes a published version, so a pull
+    # request runs the checks on each of those commits as well as on its head
+    # (merged with main, as before). A push has the one leg of the pushed commit.
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          legs='{"ref":"","head":true,"name":"Checks"}'
+          if [ -n "$HEAD_SHA" ]; then
+            for c in $(git log --reverse --format=%H "origin/main..$HEAD_SHA"); do
+              added=$(git diff-tree --no-commit-id --no-renames --name-only --diff-filter=A -r "$c" -- .changeset | grep -vxE '\.changeset/(README\.md|config\.json)' || true)
+              if [ -n "$added" ] && [ "$c" != "$HEAD_SHA" ]; then
+                legs="$legs,{\"ref\":\"$c\",\"head\":false,\"name\":\"Checks of ${c:0:7}\"}"
+              fi
+            done
+          fi
+          echo "matrix=[$legs]" >> "$GITHUB_OUTPUT"
+          echo "checks run on: [$legs]"
+
   checks:
-    name: Checks
-    needs: version
+    name: ${{ matrix.name }}
+    needs: [version, plan]
     # A pull request has no version job. After a push, only the run that found
     # nothing to version goes on; the others end in `version`.
-    if: ${{ !cancelled() && (needs.version.result == 'skipped' || needs.version.outputs.state == 'current') }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.version.result == 'skipped' || needs.version.outputs.state == 'current') }}
     runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # The commit check lists a pull request's commits through the API.
     permissions:
       contents: read
@@ -172,20 +205,26 @@ jobs:
     # A newer push to a pull request makes its older checks pointless; every push to
     # main gets a group of its own, so no check of main is ever replaced.
     concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('checks-{0}', github.ref) || format('checks-{0}', github.run_id) }}
+      group: ${{ github.event_name == 'pull_request' && format('checks-{0}-{1}', github.ref, matrix.ref) || format('checks-{0}-{1}', github.run_id, matrix.ref) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     # One step per check, so the run shows which check ran and which one failed.
     steps:
       - uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ matrix.ref }}
           fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
+      - run: npm ci --ignore-scripts
       - name: Commit messages follow Conventional Commits
+        if: matrix.head
         uses: wagoid/commitlint-github-action@v6.2.1
       - name: Branch name names a task
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.head
         run: '[[ "$GITHUB_HEAD_REF" =~ ^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)/ttv-[1-9][0-9]*-[a-z0-9][a-z0-9.-]*$ ]]'
       # actionlint 1.7.12 predates three documented things; drop each ignore once
       # actionlint knows it: the `queue` key of `concurrency` (queue: max keeps every
@@ -194,6 +233,7 @@ jobs:
       # The runner passes `args` to docker without shell quoting, so a space inside a
       # pattern is written `\s` and a quote `.` (each pattern is a regular expression).
       - name: Workflows are valid
+        if: matrix.head
         uses: docker://rhysd/actionlint:1.7.12
         with:
           args: >-
@@ -211,7 +251,56 @@ jobs:
       - name: nginx updates its executable without losing the listener
         run: bash scripts/check.sh nginx-upgrade
       - name: A change under nginx/ raises the revision
-        run: bash scripts/check.sh revision "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
+        run: bash scripts/check.sh revision "$BASE_SHA" HEAD
+      - name: Dependencies are pinned exactly
+        # Security rule 6: no range and no `latest`, in dependencies, devDependencies,
+        # optionalDependencies and overrides; an `npm:` alias names an exact version.
+        run: |
+          node -e '
+          const pkg = JSON.parse(require("node:fs").readFileSync("package.json", "utf8"));
+          const exact = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
+          const bad = [];
+          const walk = (where, value) => {
+            if (typeof value === "string") {
+              const spec = value.startsWith("npm:") ? value.slice(value.lastIndexOf("@") + 1) : value;
+              if (!exact.test(spec)) bad.push(where + " = " + value);
+            } else if (value && typeof value === "object") {
+              for (const [key, inner] of Object.entries(value)) walk(where + "." + key, inner);
+            }
+          };
+          for (const field of ["dependencies", "devDependencies", "optionalDependencies", "overrides"]) walk(field, pkg[field]);
+          if (bad.length) {
+            console.error("::error::not an exact version: " + bad.join("; "));
+            process.exit(1);
+          }
+          console.log("every dependency is pinned exactly");'
+      - name: Pull request adds a changeset
+        if: github.event_name == 'pull_request' && matrix.head
+        run: npx --no-install changeset status --since=origin/main
+      - name: Pull request carries no copy of a commit on main
+        # A rewrite of main leaves a branch made before it with the old copies of the
+        # commits; a plain rebase onto main would bring their changesets back.
+        if: github.event_name == 'pull_request' && matrix.head
+        run: |
+          copies=$(comm -12 \
+            <(git log --format='%ae %at %s' "origin/main..$HEAD_SHA" | sort) \
+            <(git log --format='%ae %at %s' "$HEAD_SHA..origin/main" | sort))
+          if [ -n "$copies" ]; then
+            echo "::error::the pull request carries commits that main holds under other hashes:"
+            printf '%s\n' "$copies"
+            echo "Run: git fetch origin && git rebase --fork-point origin/main"
+            exit 1
+          fi
+      - name: Commits do not change an existing changeset
+        # The rewrite replays each commit onto a parent that already lost the
+        # changesets of the commits before it; a later edit of one would conflict.
+        if: github.event_name == 'pull_request' && matrix.head
+        run: |
+          edited=$(git log --format= --name-only --diff-filter=MR "origin/main..$HEAD_SHA" -- '.changeset/*.md' | grep -vxE '\.changeset/README\.md' || true)
+          if [ -n "$edited" ]; then
+            echo "::error::a commit of the pull request modifies or renames a changeset file: $edited"
+            exit 1
+          fi
 
   publish:
     name: Publish
