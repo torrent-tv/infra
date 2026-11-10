@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.3
+
+### Patch Changes
+
+- Link the shared CONTRIBUTING rules from AGENTS.md.
+
 ## 0.0.2
 
 ### Patch Changes
