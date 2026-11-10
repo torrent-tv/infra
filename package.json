@@ -1,0 +1,12 @@
+{
+  "name": "torrent-tv-infra",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Version of torrent-tv/infra and the tools that release it; nothing here is published",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@changesets/cli": "3.0.3",
+    "npm-check-updates": "23.1.1",
+    "semver": "7.8.6"
+  }
+}
