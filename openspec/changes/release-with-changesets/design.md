@@ -89,9 +89,15 @@ no skip marker is used, so the rewritten commits get their own checks.
 `publish` runs after `checks`, one at a time (`concurrency: publish`, queued). The
 versions are the commits since the newest reachable `v*` tag's own commit that
 added a `## <version>` heading to `CHANGELOG.md`. For each, oldest first, it
-tags with `changeset git-tag`, pushes the tag with `GITHUB_TOKEN` (a tag push
-starts no run), and creates the GitHub Release from the changelog section. A tag that
-exists on another commit fails the job. A re-run finishes what is missing.
+tags with `changeset git-tag`, pushes the tag and creates the GitHub Release from the
+changelog section. A tag that exists on another commit fails the job. A re-run finishes what is
+missing.
+
+The checkout, the tag push and the Release use the release App token with `contents: write`
+and `workflows: write`. A version commit may change workflow files, GitHub refuses a tag that
+reaches one from an App without `workflows` permission, and `GITHUB_TOKEN` can never have it
+(measured 2026-11-10: infra `v0.0.10` was refused, message in torrent-tv/meta#336). No workflow
+listens to tags, so the push starts no run. The job's own `GITHUB_TOKEN` is `contents: read`.
 
 ### Pull requests
 
