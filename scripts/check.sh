@@ -3,11 +3,24 @@
 # beyond pulling the pinned images. main.yml runs them one step each, so a run shows
 # which one failed; dependencies.yml runs `all` on every commit it prepares.
 #
-#   bash scripts/check.sh pins | images | compose | nginx | nginx-upgrade
+#   bash scripts/check.sh tools | pins | images | compose | nginx | nginx-upgrade
 #   bash scripts/check.sh revision <base-commit> [<head-commit>]
 #   bash scripts/check.sh all
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+tools() {
+  # Security rule 6: Node (.node-version) and npm (packageManager) are exact versions,
+  # and the runner provides exactly those. npm is the one bundled with that Node.
+  local node_want npm_want
+  node_want="v$(tr -d '[:space:]' < .node-version)"
+  npm_want=$(node -p 'require("./package.json").packageManager.replace(/^npm@/, "")')
+  if [ "$(node --version)" != "$node_want" ] || [ "$(npm --version)" != "$npm_want" ]; then
+    echo "::error::node $(node --version) and npm $(npm --version) run here; the repository pins node $node_want and npm $npm_want"
+    return 1
+  fi
+  echo "node $node_want and npm $npm_want"
+}
 
 pins() {
   # Security rule 6: no range and no `latest`, in dependencies, devDependencies,
@@ -67,12 +80,13 @@ revision() {
 }
 
 case "${1:-}" in
+  tools) tools ;;
   pins) pins ;;
   images) images ;;
   compose) compose ;;
   nginx) nginx ;;
   nginx-upgrade) nginx_upgrade ;;
   revision) revision "${2:-}" "${3:-HEAD}" ;;
-  all) pins && images && compose && nginx && nginx_upgrade ;;
-  *) echo "usage: bash scripts/check.sh pins|images|compose|nginx|nginx-upgrade|revision <base> [<head>]|all" >&2; exit 2 ;;
+  all) tools && pins && images && compose && nginx && nginx_upgrade ;;
+  *) echo "usage: bash scripts/check.sh tools|pins|images|compose|nginx|nginx-upgrade|revision <base> [<head>]|all" >&2; exit 2 ;;
 esac
