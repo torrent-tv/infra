@@ -239,7 +239,7 @@ jobs:
           fi
           header="fix(deps): update the digest of $changed #ttv-386"
           if [ "${#header}" -gt 100 ]; then
-            header="fix(deps): update the digest of $(printf '%s' "$changed" | tr ',' '\n' | wc -l | tr -d ' ') images #ttv-386"
+            header="fix(deps): update the digest of $(printf '%s' "$changed" | awk -F', ' '{print NF}') images #ttv-386"
           fi
           changeset "deps-digests-$RUN_KEY" "Update the digest of $changed."
           commit "$header" "Update the digest of $changed."
