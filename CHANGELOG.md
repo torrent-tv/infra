@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.10
+
+### Patch Changes
+
+- A changeset that was already released can no longer come back through a pull request, and every changeset must now be one plain sentence.
+
 ## 0.0.9
 
 ### Patch Changes

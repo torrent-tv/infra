@@ -43,7 +43,8 @@ organization's
 the changeset front matter names `"torrent-tv-infra"`. After `version`, the
 checks are: commit headers, branch name, workflows, exact dependency versions,
 image digests, `docker compose config`, `nginx -t` in the pinned nginx image,
-nginx's live executable upgrade, and the nginx revision (`scripts/check.sh`);
+nginx's live executable upgrade, and the nginx revision (`scripts/check.sh`); a pull request also gets `copies`,
+`changeset-format` and `changesets-selftest` of that script;
 `publish` tags and releases each version.
 The serial `deploy` job then moves `production` to the checked commit (never
 backwards, never forced), asks doco-cd to apply it through a signed webhook,
