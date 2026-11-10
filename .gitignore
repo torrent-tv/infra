@@ -1,0 +1,4 @@
+
+# Env files hold secrets; they are never committed.
+.env
+.env.*
