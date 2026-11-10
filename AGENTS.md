@@ -36,7 +36,7 @@ Encrypt limits that bound it) and the cost of relaying through a droplet:
 ## Deploy path
 
 Merging to `main` runs `.github/workflows/main.yml`: commit headers, secrets
-in commits, branch name, line endings, image digests, `docker compose config`,
+in commits, branch name, workflows, image digests, `docker compose config`,
 `nginx -t` in the pinned nginx image, nginx's live executable upgrade, and the
 nginx revision.
 The serial `deploy` job then moves `production` to the checked commit (never
