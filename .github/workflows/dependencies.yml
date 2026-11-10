@@ -42,7 +42,7 @@ jobs:
         run: git add -u
       - name: Commit and deploy
         if: always() && steps.digests.outputs.changed != ''
-        uses: torrent-tv/.github/actions/push-to-main@main
+        uses: torrent-tv/workflows/actions/push-to-main@main
         with:
           message: "fix(deps): update the digest of ${{ steps.digests.outputs.changed }} #ttv-386"
           workflow: main.yml
