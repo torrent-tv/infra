@@ -118,7 +118,10 @@ listens to tags, so the push starts no run. The job's own `GITHUB_TOKEN` is `con
 
 `deploy` needs `checks`, which runs only when the `version` job ended `current`.
 `production` is forward-only; a pending tip is never deployed, and later rewrites
-start at a commit after every deployed tip.
+start at a commit after every deployed tip. The step "Page after the deployment" installs the exact
+Playwright 1.65.0 (it had `playwright@1`, which moves with every minor release; Security rule 6); the
+job runs no `npm ci`, so the version is written in the step and changes only in a commit. The step
+prints the installed version (`playwright --version`) before it installs the browser.
 
 ### Dependencies
 
