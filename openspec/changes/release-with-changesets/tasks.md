@@ -75,3 +75,8 @@ The checks are the Checks run of this pull request, scratch-repository runs
       and a changeset must be one plain sentence. Check: `bash scripts/check.sh changesets-selftest`
       exits 0 (the earlier range comparison passes the copy, `copies` fails it; each format rule fails
       its bad input), and the step "Changeset checks fail on bad input" passes in `Checks`.
+- [x] 2.15 The step "Test every commit, oldest first" of `dependencies.yml` runs `.githooks/commit-msg` on
+      each prepared commit and stops at a refused one. Check: in a scratch repository with a stub `npm` and
+      a stub `scripts/check.sh`, the step keeps the commit before one whose body has a line of 120
+      characters and stops there, and passes a commit made by the helper `commit` (folded body); the leg
+      `commit-msg-bot` of the next commit runs exactly that.
