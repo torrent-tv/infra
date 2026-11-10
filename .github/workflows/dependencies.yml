@@ -44,7 +44,7 @@ jobs:
         if: always() && steps.digests.outputs.changed != ''
         uses: torrent-tv/.github/actions/push-to-main@main
         with:
-          message: "fix(deps): update the digest of ${{ steps.digests.outputs.changed }}"
+          message: "fix(deps): update the digest of ${{ steps.digests.outputs.changed }} #ttv-386"
           workflow: main.yml
           github-token: ${{ github.token }}
 
