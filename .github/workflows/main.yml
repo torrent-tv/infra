@@ -56,32 +56,15 @@ jobs:
             -ignore input\s.client-id.\sis\snot\sdefined\sin\saction\s.actions/create-github-app-token@
             -ignore missing\sinput\s.app-id.\swhich\sis\srequired\sby\saction\s.actions/create-github-app-token@
       - name: Every image is pinned by digest
-        # So the file says exactly what runs.
-        run: |
-          if grep -hE '^\s+image:' docker-compose.yml host/doco-cd/docker-compose.yml | grep -v '@sha256:'; then
-            echo "::error::an image above is not pinned by digest"
-            exit 1
-          fi
+        run: bash scripts/check.sh images
       - name: Compose files are valid
-        run: |
-          docker compose -f docker-compose.yml config --quiet
-          docker compose -f host/doco-cd/docker-compose.yml config --quiet
+        run: bash scripts/check.sh compose
       - name: nginx accepts the configuration
-        # Checked by the nginx image that will run it.
-        run: |
-          image=$(sed -nE '/^  nginx:/,/^  [^ ]/s/^    image: (.*)$/\1/p' docker-compose.yml)
-          docker run --rm -v "$PWD/nginx:/etc/nginx/conf.d:ro" "$image" nginx -t
+        run: bash scripts/check.sh nginx
       - name: nginx updates its executable without losing the listener
-        run: |
-          image=$(sed -nE '/^  nginx-upgrade:/,/^  [^ ]/s/^    image: (.*)$/\1/p' docker-compose.yml)
-          NGINX_UPGRADE_IMAGE="$image" bash scripts/check-nginx-live-upgrade.sh
+        run: bash scripts/check.sh nginx-upgrade
       - name: A change under nginx/ raises the revision
-        # CI reads the revision back after deploying.
-        run: |
-          base="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -n "$base" ] && ! [[ "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
-            node scripts/check-nginx-revision.mjs "$base..${{ github.sha }}"
-          fi
+        run: bash scripts/check.sh revision "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
 
   deploy:
     name: Deploy
