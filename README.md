@@ -140,7 +140,7 @@ one server process, so only one server serves at a time. It runs in two slots,
 `server-a` and `server-b` (torrent-tv/meta#94):
 
 1. A server release writes its image into the slot that names the older
-   version, which is not serving (`torrent-tv/.github`
+   version, which is not serving (`torrent-tv/workflows`
    `scripts/server-image.mjs`). doco-cd recreates only that slot.
 2. The new instance asks the serving one, over `/internal/hand-over` on the
    Docker network, to hand over. The serving one stops accepting proxy tunnels
