@@ -71,3 +71,7 @@ The checks are the Checks run of this pull request, scratch-repository runs
       Every `force_push` has actor `torrent-tv-release[bot]`. `git grep -n
       'HEAD:refs/heads/main' -- .github/workflows` finds two lines: the force-push of
       `version` and the push of `dependencies.yml`.
+- [x] 2.14 The copy check compares each commit of a pull request with the whole history of `main`,
+      and a changeset must be one plain sentence. Check: `bash scripts/check.sh changesets-selftest`
+      exits 0 (the earlier range comparison passes the copy, `copies` fails it; each format rule fails
+      its bad input), and the step "Changeset checks fail on bad input" passes in `Checks`.
