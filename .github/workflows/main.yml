@@ -283,6 +283,80 @@ jobs:
             fi
           done
 
+  rebase-prs:
+    name: Rebase pull requests
+    needs: version
+    if: github.event_name == 'push' && needs.version.outputs.state == 'current'
+    runs-on: ubuntu-26.04
+    environment: production
+    # The rewrite of main left the open pull requests on commits main no longer
+    # has. Each is rebased onto the new tip; one that conflicts is left to its author.
+    concurrency:
+      group: rebase-prs
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@v7.0.1
+        with:
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+      - name: Rebase each open pull request onto main
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config user.name 'torrent-tv-release[bot]'
+          git config user.email '337444158+torrent-tv-release[bot]@users.noreply.github.com'
+          git fetch --quiet origin
+          main=$(git rev-parse origin/main)
+          echo "main is $(git rev-parse --short "$main"); rebasing the open pull requests of this repository onto it"
+          gh pr list --base main --state open --json number,headRefName,headRefOid,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | [.number, .headRefName, .headRefOid] | @tsv' > "$RUNNER_TEMP/prs.tsv"
+          if [ ! -s "$RUNNER_TEMP/prs.tsv" ]; then
+            echo "no open pull request of this repository"
+            exit 0
+          fi
+          while IFS=$'\t' read -r number branch head; do
+            if git merge-base --is-ancestor "$main" "$head"; then
+              echo "#$number is up to date"
+              continue
+            fi
+            # Commits of the pull request that main also holds, rewritten: same author e-mail,
+            # author time and subject. The newest of them is where the pull request's own commits
+            # start. With none, the merge base is that point.
+            copies=$(git log --format='%ae %at %s' "$head..$main")
+            fork=''
+            for c in $(git rev-list "$main..$head"); do
+              if printf '%s\n' "$copies" | grep -qxF -- "$(git log -1 --format='%ae %at %s' "$c")"; then
+                fork=$c
+                break
+              fi
+            done
+            fork=${fork:-$(git merge-base "$main" "$head")}
+            git switch --quiet --detach "$head"
+            if ! git rebase --quiet --onto "$main" "$fork"; then
+              paths=$(git diff --name-only --diff-filter=U | paste -sd, -)
+              stopped=$(git rev-parse --short REBASE_HEAD)
+              git rebase --abort
+              echo "#$number: rebase stopped at $stopped, conflict in $paths"
+              gh pr comment "$number" --body "Rebase onto main \`${main:0:7}\` stopped at \`$stopped\`: conflict in \`$paths\`. Rebase with \`git fetch origin && git rebase --fork-point origin/main\`."
+              continue
+            fi
+            new=$(git rev-parse HEAD)
+            if git push --quiet --force-with-lease="refs/heads/$branch:$head" origin "HEAD:refs/heads/$branch"; then
+              echo "rebased #$number ${head:0:7} -> ${new:0:7}"
+            else
+              echo "#$number: ${branch} moved while it was rebased; the next change of main rebases it"
+            fi
+          done < "$RUNNER_TEMP/prs.tsv"
+
   deploy:
     name: Deploy
     needs: checks
