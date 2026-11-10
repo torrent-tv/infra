@@ -116,9 +116,10 @@ compose file is applied from there); doco-cd keeps its data in
 
 1. A commit lands on `main` — by a person, or by a server release that writes the
    new server version and digest into `docker-compose.yml`.
-2. CI checks it: commit headers, every image pinned by digest, `docker compose
-   config`, `nginx -t` in the pinned nginx image, and that a change under
-   `nginx/` raised the revision in `nginx/revision.common`.
+2. CI checks it: commit headers, no secret in any commit, every image pinned
+   by digest, `docker compose config`, `nginx -t` in the pinned nginx image,
+   and that a change under `nginx/` raised the revision in
+   `nginx/revision.common`.
 3. The serial `deploy` job (one at a time, queued) moves `production` to the
    commit without force — a commit `production` already contains is skipped as
    superseded — and sends doco-cd a signed webhook for that commit through

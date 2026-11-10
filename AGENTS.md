@@ -35,9 +35,10 @@ Encrypt limits that bound it) and the cost of relaying through a droplet:
 
 ## Deploy path
 
-Merging to `main` runs `.github/workflows/main.yml`: commit headers, branch
-name, line endings, image digests, `docker compose config`, `nginx -t` in the
-pinned nginx image, nginx's live executable upgrade, and the nginx revision.
+Merging to `main` runs `.github/workflows/main.yml`: commit headers, secrets
+in commits, branch name, line endings, image digests, `docker compose config`,
+`nginx -t` in the pinned nginx image, nginx's live executable upgrade, and the
+nginx revision.
 The serial `deploy` job then moves `production` to the checked commit (never
 backwards, never forced), asks doco-cd to apply it through a signed webhook,
 follows the run and the server handover, and checks the site and the page from
