@@ -42,6 +42,8 @@ jobs:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
+          # The rewrite replays commits that may change workflow files.
+          permission-workflows: write
       - uses: actions/checkout@v7.0.1
         with:
           token: ${{ steps.token.outputs.token }}
@@ -380,6 +382,8 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
+          # A pull request that changes a workflow file is rebased too.
+          permission-workflows: write
       - uses: actions/checkout@v7.0.1
         with:
           token: ${{ steps.token.outputs.token }}
@@ -394,12 +398,13 @@ jobs:
           git fetch --quiet origin
           main=$(git rev-parse origin/main)
           echo "main is $(git rev-parse --short "$main"); rebasing the open pull requests of this repository onto it"
-          gh pr list --base main --state open --json number,headRefName,headRefOid,isCrossRepository \
+          gh pr list --base main --state open --limit 1000 --json number,headRefName,headRefOid,isCrossRepository \
             --jq '.[] | select(.isCrossRepository | not) | [.number, .headRefName, .headRefOid] | @tsv' > "$RUNNER_TEMP/prs.tsv"
           if [ ! -s "$RUNNER_TEMP/prs.tsv" ]; then
             echo "no open pull request of this repository"
             exit 0
           fi
+          refused=0
           while IFS=$'\t' read -r number branch head; do
             if git merge-base --is-ancestor "$main" "$head"; then
               echo "#$number is up to date"
@@ -427,12 +432,17 @@ jobs:
               continue
             fi
             new=$(git rev-parse HEAD)
-            if git push --quiet --force-with-lease="refs/heads/$branch:$head" origin "HEAD:refs/heads/$branch"; then
+            if refusal=$(git push --quiet --force-with-lease="refs/heads/$branch:$head" origin "HEAD:refs/heads/$branch" 2>&1); then
               echo "rebased #$number ${head:0:7} -> ${new:0:7}"
+            elif [ "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" != "$head" ]; then
+              echo "#$number: $branch moved while it was rebased; the next change of main rebases it"
             else
-              echo "#$number: ${branch} moved while it was rebased; the next change of main rebases it"
+              # The branch did not move, so git refused the push itself.
+              echo "::error::#$number: the push of $branch was refused: $refusal"
+              refused=1
             fi
           done < "$RUNNER_TEMP/prs.tsv"
+          exit "$refused"
 
   deploy:
     name: Deploy
