@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.17
+
+### Patch Changes
+
+- The OpenSpec change for the release flow is archived.
+
 ## 0.0.16
 
 ### Patch Changes

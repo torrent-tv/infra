@@ -155,7 +155,7 @@ on `main` after the merge by the `version` job. `publish` then tags `v<version>`
 (`changeset git-tag`) and creates the GitHub Release from the changelog section.
 After a rewrite, `rebase-prs` rebases every open pull request onto `main`. The
 rules, the states of a commit and the blockers:
-[`openspec/changes/release-with-changesets/design.md`](openspec/changes/release-with-changesets/design.md).
+[`openspec/changes/archive/2026-11-11-release-with-changesets/design.md`](openspec/changes/archive/2026-11-11-release-with-changesets/design.md).
 
 ### Dependencies
 
