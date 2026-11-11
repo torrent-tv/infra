@@ -36,11 +36,9 @@ Encrypt limits that bound it) and the cost of relaying through a droplet:
 ## Deploy path
 
 Merging to `main` runs `.github/workflows/main.yml`. Changesets, versions and
-the release are shared by every repository and are written once, in the
-organization's
-[`CONTRIBUTING.md`](https://github.com/torrent-tv/workflows/blob/main/CONTRIBUTING.md#versions-and-releases)
-("Versions and releases", "How a release reaches its users", "Dependencies");
-the changeset front matter names `"torrent-tv-infra"`. After `version`, the
+the release are shared by every repository and are written once, in
+[`../AGENTS.md`](../AGENTS.md) ("Process" rule 10); the changeset front matter
+names `"torrent-tv-infra"`. After `version`, the
 checks are: commit headers, branch name, workflows, exact dependency versions,
 image digests, `docker compose config`, `nginx -t` in the pinned nginx image,
 nginx's live executable upgrade, and the nginx revision (`scripts/check.sh`); a pull request also gets `copies`,

@@ -4,4 +4,4 @@ context: |
   Infrastructure deploys the Torrent TV server through nginx and Docker Compose
   on the webauth.courses droplet.
   Repository rules: AGENTS.md.
-  Shared commit and release rules: torrent-tv/workflows/CONTRIBUTING.md.
+  Shared commit and release rules: ../AGENTS.md ("Process" rules 3 and 10).

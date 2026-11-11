@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.27
+
+### Patch Changes
+
+- Agent rules no longer link to the deleted workflows repository; shared release rules are in the project rules file.
+
 ## 0.0.26
 
 ### Patch Changes
