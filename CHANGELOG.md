@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.15
+
+### Patch Changes
+
+- The dependency job now refuses a commit whose message the commit-msg hook refuses, and CI checks the exact pins, the tokens and the commit messages of the workflow files.
+
 ## 0.0.14
 
 ### Patch Changes

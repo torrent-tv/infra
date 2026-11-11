@@ -44,7 +44,14 @@ the changeset front matter names `"torrent-tv-infra"`. After `version`, the
 checks are: commit headers, branch name, workflows, exact dependency versions,
 image digests, `docker compose config`, `nginx -t` in the pinned nginx image,
 nginx's live executable upgrade, and the nginx revision (`scripts/check.sh`); a pull request also gets `copies`,
-`changeset-format` and `changesets-selftest` of that script;
+`changeset-format` and `changesets-selftest` of that script; every commit also gets
+`workflow-pins` (every action, image, Node version and npm or docker install in a workflow is an exact
+version), `workflow-tokens` (the dependency job `update` gives no token to package code, and each job
+that pushes holds the App token with the permissions it needs, listed in `WORKFLOW_PUSHES` (the one
+exception is `deploy`, which moves `production` with the job's own GITHUB_TOKEN; its row fixes the
+job's `permissions`); it reads the
+workflows with yq 4.54.1), `commit-msg-bot` (the dependency job runs the commit-msg hook on each commit
+it prepares), `workflow-selftest` (all three on bad input);
 `publish` tags and releases each version.
 The serial `deploy` job then moves `production` to the checked commit (never
 backwards, never forced), asks doco-cd to apply it through a signed webhook,
