@@ -30,11 +30,19 @@ The checks are the Checks run of this pull request, scratch-repository runs
       Check: `bash scripts/check.sh pins` and `git grep -nE 'uses: [^ ]+@v[0-9]+$' -- .github`.
 - [x] 2.3 The Checks run of the pull request passes, `Workflows are valid`
       included (actionlint 1.7.12 with the four documented ignores).
-- [ ] 2.4 Changeset checks (design.md, Pull requests): two throwaway pull
+- [x] 2.4 Changeset checks (design.md, Pull requests): two throwaway pull
       requests, each closed afterwards. A pull request without a changeset fails
       "Pull request adds a changeset". One that writes `^3.0.3` into
       `devDependencies` fails "Dependencies are pinned exactly". Check: run URLs.
-- [ ] 2.5 After the merge, the release of this change: a `force_push` on
+      Shown: on 2026-11-10 infra#22 (branch `chore/ttv-336-throwaway-nochangeset`, valid name,
+      no changeset) failed `Checks` at "Pull request adds a changeset" (run 42924958868; before
+      that, infra#11 failed there too, run 42830077001); infra#23
+      (`chore/ttv-336-throwaway-range`, `semver` written as `^7.8.6` in `devDependencies`)
+      failed at "Dependencies are pinned exactly" with `not an exact version:
+      devDependencies.semver = ^7.8.6` (run 42924964318); infra#21 (a branch naming no task)
+      failed at "Branch name names a task" (run 42924953813). All three were closed unmerged and
+      their runs deleted (meta#336 comment 6782567095, AC 7 and 17).
+- [x] 2.5 After the merge, the release of this change: a `force_push` on
       `refs/heads/main` by `torrent-tv-release[bot]` follows the `pr_merge`
       (`gh api "repos/torrent-tv/infra/activity?ref=refs/heads/main"`); the
       changeset commit has its author, author time and header unchanged, sets
@@ -42,35 +50,79 @@ The checks are the Checks run of this pull request, scratch-repository runs
       the changeset; the next run's `version` job logs `no pending changesets`;
       tag `v0.0.1` and its GitHub Release (body equal to the changelog section)
       exist; `deploy` is green. Waits for the release App secrets on `production`.
-- [ ] 2.6 Window: the time from `pr_merge` to `force_push`, with the `version`
+      Shown: infra#11 `pr_merge` 2026-11-10 14:59:33 UTC, `force_push` by
+      `torrent-tv-release[bot]` at 14:59:50; a7d9a45 keeps its author and header, sets
+      `package.json` to 0.0.1 and adds `## 0.0.1` to `CHANGELOG.md`; run 42839776017: `Version`
+      logs `no pending changesets`, `Checks`, `Publish` and `Deploy` success; tag `v0.0.1` is on
+      a7d9a45 and its GitHub Release body is the `CHANGELOG.md` section (meta#336 comment
+      6781047118, AC 2 and 15; tag and Release read again 2026-11-11).
+- [x] 2.6 Window: the time from `pr_merge` to `force_push`, with the `version`
       job's step times, is recorded on torrent-tv/meta#336.
-- [ ] 2.7 A throwaway pull request made on a pre-rewrite tip and holding a copy of
+      Shown: `pr_merge` 14:59:33, `force_push` 14:59:50 (17 s); `version` job from 14:59:41: app
+      token 1 s, checkout 1 s, setup-node 1 s, `npm ci` 1 s, "Version every commit that holds a
+      changeset" 3 s (14:59:47-14:59:50); recorded on torrent-tv/meta#336 as "Version window (AC
+      15)" (comment 6781047118).
+- [x] 2.7 A throwaway pull request made on a pre-rewrite tip and holding a copy of
       a commit fails "Pull request carries no copy of a commit on main" until
       `rebase-prs` rebases it; it is then closed.
+      Shown: infra#20 (`chore/ttv-336-throwaway-copy`), cut on the pre-rewrite tip 66e555b with
+      one changeset commit: run 42924949011 failed "Pull request carries no copy of a commit on
+      main" naming `chore(deploy): run server 0.66.59 #ttv-388`; after the server install
+      rewrote `main`, `rebase-prs` (run 42925924818) logged `rebased #20 2a74679 -> d2cb3f5` and
+      the new run 42925992318 passed that step. The pull request was closed unmerged and its
+      runs deleted (meta#336 comment 6782567095, AC 13).
 - [ ] 2.8 A pull request with two commits that each add a changeset yields two
       versions, two tags and two GitHub Releases, and its run had one Checks leg
       per changeset commit.
-- [ ] 2.9 First `Dependencies` run after the merge ends in one of two ways: it logs
+      Not shown in this repository: no merged infra pull request had two commits that each added
+      a changeset; the probe pull request infra#12 (closed unmerged) showed three `Checks` legs
+      (run 42831372106) but released nothing. Two such commits were released as two versions,
+      two tags and two Releases in proxy#66 (v2.107.83 and v2.107.84; meta#336 comment
+      6781047118, AC 14). Archived unticked.
+- [x] 2.9 First `Dependencies` run after the merge ends in one of two ways: it logs
       `no updates` and `0 open Dependabot alerts` and pushes nothing, or it pushes
       its commits as the release App with the headers of design.md, each versioned
       and released. `update` has only `contents: read` and `vulnerability-alerts:
       read`, no environment and no `secrets.`; `push` has no `npm`, `npx` or test
       command.
-- [ ] 2.10 A `workflow_dispatch` of `dependencies.yml` on a throwaway branch whose
+      Shown: `Dependencies` run 42925419499 (`workflow_dispatch`, 2026-11-10 23:41 UTC):
+      `Update`, `Disk space` and `Result` success, `Push to main` skipped; it logged `0 open
+      Dependabot alerts`, `no updates`, `0 commits passed` and pushed nothing. `update` has only
+      `contents: read` and `vulnerability-alerts: read`, no environment and no `secrets.`;
+      `push` runs no `npm`, `npx` or test command (meta#336 comments 6781047118, AC 9(b), and
+      6782567095, AC 9(a)).
+- [x] 2.10 A `workflow_dispatch` of `dependencies.yml` on a throwaway branch whose
       `scripts/check.sh` exits 1 ends red; its `push` job is skipped and the
       activity API shows no `push`. The branch is deleted afterwards.
-- [ ] 2.11 Force-push of a range that holds a workflow change: the next merge that
+      Shown: run 42925258556, a `workflow_dispatch` on the throwaway branch
+      `fix/ttv-336-throwaway-failing-dispatch` whose `scripts/check.sh all` ended in `&& false`:
+      `Update` success, `Result` failure, `Push to main` skipped; the log says `the checks
+      failed on "chore(deps): update dependencies #ttv-386"; it and the commits after it are not
+      pushed` and `0 commits passed`; the activity API showed no push from it. The branch and
+      the run were deleted afterwards (meta#336 comment 6782567095, AC 9(c)).
+- [x] 2.11 Force-push of a range that holds a workflow change: the next merge that
       changes a workflow and adds a changeset is versioned by `version` with no
       refusal (the App has `workflows: write`, design.md Fact 8). Check: the
       `force_push` in the activity API.
+      Shown: infra#14 `pr_merge` 2026-11-10 20:42:01 UTC changed
+      `.github/workflows/dependencies.yml`; the release App's `force_push` at 20:42:15 (71ef749
+      -> f33d0ed, tag `v0.0.5`) was accepted with no refusal (meta#336 comment 6781047118).
 - [x] 2.13 Node and npm are exact: `bash scripts/check.sh tools` passes in `checks`
       and fails when `.node-version` or `packageManager` differs from the runner's.
-- [ ] 2.12 Every commit on `main` after this change either matches a merged pull
+- [x] 2.12 Every commit on `main` after this change either matches a merged pull
       request commit or is by `torrent-tv-release[bot]` with a header ending in
       `#ttv-386`, `#ttv-387` or `#ttv-388` and only the paths of design.md.
       Every `force_push` has actor `torrent-tv-release[bot]`. `git grep -n
       'HEAD:refs/heads/main' -- .github/workflows` finds two lines: the force-push of
       `version` and the push of `dependencies.yml`.
+      Shown: every commit after 059c0ee is a merged pull request commit or one of the release
+      App's 8 commits `chore(deploy): run server <v> #ttv-388` (v0.66.54 to v0.66.61), each
+      changing `docker-compose.yml` and the version files; all 16 `force_push` entries since the
+      switch merge (infra#11, 2026-11-10 14:59:33 UTC) are by `torrent-tv-release[bot]`, the
+      others are 8 `pr_merge` by the coordinator and 8 `push` by the release App. `git grep -n
+      'HEAD:refs/heads/main' -- .github/workflows` is the force-push of `version` and the push
+      of `dependencies.yml` (meta#336 comment 6781047118, AC 5, checked again against
+      `origin/main` 535d6f7).
 - [x] 2.14 The copy check compares each commit of a pull request with the whole history of `main`,
       and a changeset must be one plain sentence. Check: `bash scripts/check.sh changesets-selftest`
       exits 0 (the earlier range comparison passes the copy, `copies` fails it; each format rule fails
