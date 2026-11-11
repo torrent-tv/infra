@@ -157,6 +157,28 @@ After a rewrite, `rebase-prs` rebases every open pull request onto `main`. The
 rules, the states of a commit and the blockers:
 [`openspec/changes/archive/2026-11-11-release-with-changesets/design.md`](openspec/changes/archive/2026-11-11-release-with-changesets/design.md).
 
+### Rules on `main`
+
+Three rulesets cover this repository's branches. The files in `torrent-tv/meta`
+own the facts below; this section links to them and does not copy them.
+
+1. [`main: no deletion, linear history`](https://github.com/torrent-tv/meta/blob/main/rulesets/main-linear.json):
+   `main` cannot be deleted and holds no merge commit. It has no bypass actor.
+2. [`main: reviewed pull request, no force push`](https://github.com/torrent-tv/meta/blob/main/rulesets/main-reviewed.json):
+   a change reaches `main` only through a pull request merged by rebase, with the
+   required status checks `Required checks` (GitHub Actions) and `agent-review`
+   (a commit status set by the reviewer App), and `main` is not force-pushed.
+   The release App `torrent-tv-release` (id 5178045) bypasses this ruleset, so it
+   can force-push `main` after a merge and push dependency and server-install
+   commits without a pull request (see [Versions and releases](#versions-and-releases)).
+   It still meets the first ruleset.
+3. `production: forward only` (ruleset 24427483, no file in meta): `production`
+   cannot be deleted or force-pushed, which the `deploy` job relies on.
+
+Design and rollout:
+[`openspec/changes/linear-main-reviewed-prs/`](https://github.com/torrent-tv/meta/tree/main/openspec/changes/linear-main-reviewed-prs)
+in `torrent-tv/meta` (torrent-tv/meta#328).
+
 ### Dependencies
 
 `.github/workflows/dependencies.yml` runs daily and does the following, with no

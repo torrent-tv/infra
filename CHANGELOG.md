@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.25
+
+### Patch Changes
+
+- The README now describes the rulesets that protect main and the release App that bypasses one of them.
+
 ## 0.0.24
 
 ### Patch Changes
