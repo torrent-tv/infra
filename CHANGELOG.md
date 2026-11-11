@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.23
+
+### Patch Changes
+
+- Pull requests now end in one required check, Required checks, that fails unless every check job and every per-commit leg passed.
+
 ## 0.0.22
 
 ### Patch Changes
