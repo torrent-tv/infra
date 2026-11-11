@@ -51,7 +51,8 @@ that pushes holds the App token with the permissions it needs, listed in `WORKFL
 exception is `deploy`, which moves `production` with the job's own GITHUB_TOKEN; its row fixes the
 job's `permissions`); it reads the
 workflows with yq 4.54.1), `commit-msg-bot` (the dependency job runs the commit-msg hook on each commit
-it prepares), `workflow-selftest` (all three on bad input);
+it prepares), `workflow-refs` (the checkouts of the dependency job `update` are at `main`, so a run
+queued behind another starts from the tip of `main`), `workflow-selftest` (all four on bad input);
 `publish` tags and releases each version.
 The serial `deploy` job then moves `production` to the checked commit (never
 backwards, never forced), asks doco-cd to apply it through a signed webhook,
