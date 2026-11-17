@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.34
+
+### Patch Changes
+
+- Update the digest of nginx:alpine.
+
 ## 0.0.33
 
 ### Patch Changes
