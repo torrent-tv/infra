@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.33
+
+### Patch Changes
+
+- Run server 0.66.72 in server-a.
+
 ## 0.0.32
 
 ### Patch Changes
