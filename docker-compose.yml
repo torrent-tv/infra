@@ -66,7 +66,7 @@ services:
 
   server-b:
     <<: *server
-    image: ghcr.io/torrent-tv/server:0.66.69@sha256:db5d3628776caf2cfaa486cc82fecfe8909e363a893f72719cb5b9eeb39c059f
+    image: ghcr.io/torrent-tv/server:0.66.71@sha256:fb9842d266f7f512d7721f743bd241097fd3ed0541257b9ad5ed6561295eaa52
     environment:
       <<: *server-environment
       SERVER_SLOT: "b"
