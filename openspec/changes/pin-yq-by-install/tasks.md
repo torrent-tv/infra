@@ -5,17 +5,17 @@ yq block is the same as in proxy (`check.sh copies`).
 
 ## 1. Code
 
-- [ ] 1.1 `scripts/check.sh`: `YQ_SHA256`, `YQ_DOWNLOAD_BASE`, `yq_install`, subcommand and usage
+- [x] 1.1 `scripts/check.sh`: `YQ_SHA256`, `YQ_DOWNLOAD_BASE`, `yq_install`, subcommand and usage
       line `yq-install`, comment of `yq_pinned()`; the block equals proxy's.
-- [ ] 1.2 `main.yml` job `checks` and `dependencies.yml` job `update`: step
+- [x] 1.2 `main.yml` job `checks` and `dependencies.yml` job `update`: step
       `yq is the pinned version` before the first yq step; replace the "runner image" comment.
-- [ ] 1.3 `AGENTS.md`: the workflow checks use the yq that `check.sh yq-install` installs.
-- [ ] 1.4 `workflow_selftest`: proofs (a) wrong digest, (b) missing file, (c) matching file,
+- [x] 1.3 `AGENTS.md`: the workflow checks use the yq that `check.sh yq-install` installs.
+- [x] 1.4 `workflow_selftest`: proofs (a) wrong digest, (b) missing file, (c) matching file,
       (d) the existing `yq_pinned` cases stay.
-- [ ] 1.5 `main.yml` job `checks`: a step that runs `node --test test/check-yq-install.test.js`
+- [x] 1.5 `main.yml` job `checks`: a step that runs `node --test test/check-yq-install.test.js`
       (infra has no `npm test`; the file needs only Node, no package), after `npm ci`.
-- [ ] 1.6 A changeset for `"torrent-tv-infra"` (`.changeset/`, lower-case file name).
-- [ ] 1.7 Remove the `todo` markers of the tests in the commit that makes them pass.
+- [x] 1.6 A changeset for `"torrent-tv-infra"` (`.changeset/`, lower-case file name).
+- [x] 1.7 Remove the `todo` markers of the tests in the commit that makes them pass.
 
 ## 2. Test plan
 

@@ -48,7 +48,8 @@ version), `workflow-tokens` (the dependency job `update` gives no token to packa
 that pushes holds the App token with the permissions it needs, listed in `WORKFLOW_PUSHES` (the one
 exception is `deploy`, which moves `production` with the job's own GITHUB_TOKEN; its row fixes the
 job's `permissions`); it reads the
-workflows with yq 4.54.1), `commit-msg-bot` (the dependency job runs the commit-msg hook on each commit
+workflows with the yq that `yq-install` installs at `YQ_VERSION`, its SHA-256 checked against the digest in
+`check.sh`), `commit-msg-bot` (the dependency job runs the commit-msg hook on each commit
 it prepares), `workflow-refs` (the checkouts of the dependency job `update` are at `main`, so a run
 queued behind another starts from the tip of `main`), `workflow-selftest` (all four on bad input);
 `publish` tags and releases each version.
