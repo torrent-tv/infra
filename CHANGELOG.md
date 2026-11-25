@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.47
+
+### Patch Changes
+
+- Update dependencies: none directly; 1 package(s) changed in the lock file.
+
 ## 0.0.46
 
 ### Patch Changes
