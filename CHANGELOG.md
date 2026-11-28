@@ -1,5 +1,11 @@
 # torrent-tv-infra
 
+## 0.0.51
+
+### Patch Changes
+
+- Update dependencies: @changesets/cli 3.0.3 -> 3.1.0; 13 package(s) changed in the lock file.
+
 ## 0.0.50
 
 ### Patch Changes
